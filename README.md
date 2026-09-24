@@ -9,6 +9,7 @@
 
 <h1 align="center">mini-spice</h1>
 <p align="center">A small SPICE-style circuit simulator, written from scratch in C++20.</p>
+<p align="center"><b><a href="https://aryaa94.github.io/mini-spice/">Try it in your browser &rarr;</a></b> (the real C++ engine, compiled to WebAssembly)</p>
 
 <p align="center">
   <a href="https://github.com/AryaA94/mini-spice/actions/workflows/ci.yml"><img src="https://github.com/AryaA94/mini-spice/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -26,6 +27,11 @@ resistors, capacitors, inductors, and independent voltage/current sources,
 and it's validated three independent ways: against hand-derived closed-form
 solutions, against an industry-standard SPICE implementation (ngspice), and
 with a battery of edge-case and convergence tests.
+
+There's also a [browser version](https://aryaa94.github.io/mini-spice/):
+build a circuit (or load a preset), pick DC / transient / AC, and see the
+results plotted. It runs the same C++ engine compiled to WebAssembly,
+not a JavaScript rewrite -- see [`web/README.md`](web/README.md).
 
 ## Quickstart
 

@@ -23,6 +23,14 @@ To rebuild after any change to `../src`, `../include`, or the two files
 above: `./build_web.sh` (needs Emscripten's `em++` on `PATH` -- see the
 comment at the top of that script for how to get it if you don't have it).
 
+**Publishing:** `../.github/workflows/pages.yml` deploys
+`dist/mini-spice-web.html` to <https://aryaa94.github.io/mini-spice/> on
+every push to `main`, after running the end-to-end test below against it
+(a failing test blocks the deploy). It deploys the committed file as is,
+so rebuild with `./build_web.sh` and commit `dist/` whenever the engine or
+UI changes. One-time repo setup: Settings -> Pages -> Source: "GitHub
+Actions".
+
 To test the built page end to end (needs Node.js, and the native CLI
 built at `../build/default/minispice` as the reference to compare with):
 
