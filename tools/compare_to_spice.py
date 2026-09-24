@@ -242,6 +242,13 @@ def main():
         ("RC step V(out)", "03_rc_step", 1e-5, 5e-3, "out", [0.5e-3, 1e-3, 2e-3, 3e-3, 5e-3]),
         ("Underdamped RLC V(out)", "04_rlc_underdamped", 2e-6, 3e-3, "out", [0.3e-3, 0.6e-3, 1.0e-3, 1.5e-3, 3e-3]),
         ("Overdamped RLC V(out)", "05_rlc_overdamped", 2e-6, 3e-3, "out", [0.5e-3, 1e-3, 2e-3, 3e-3]),
+        # Time-varying sources (Decision 17). Same dt/stop the committed
+        # examples/12_*/transient.csv and 13_*/transient.csv were generated
+        # with (and, for PULSE, the golden test in test_golden.cpp).
+        # Checkpoints avoid V(out)'s zero crossings, where a percent error
+        # is meaningless (a tiny absolute difference over a near-zero value).
+        ("PULSE RC filter V(out)", "12_pulse_rc_filter", 2e-5, 10e-3, "out", [2e-3, 3e-3, 4e-3, 6e-3, 10e-3]),
+        ("SIN source V(out)", "13_sine_source", 2e-5, 6e-3, "out", [0.5e-3, 1e-3, 3e-3, 4.5e-3, 6e-3]),
     ]
     for name, path, dt, stop, node, checkpoints in tran_cases:
         circuit_path = ROOT / "examples" / path / "circuit.cir"

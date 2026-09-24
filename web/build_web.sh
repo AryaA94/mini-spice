@@ -6,15 +6,22 @@
 # hand-written UI (head_and_ui_start.html + ui_logic.js) into one
 # publishable HTML file: web/dist/mini-spice-web.html.
 #
-# Requires Emscripten (emcc). If you don't have it:
+# Requires Emscripten (em++, which ships alongside emcc). If you don't have it:
 #   git clone https://github.com/emscripten-core/emsdk.git
 #   cd emsdk && ./emsdk install latest && ./emsdk activate latest
 #   source ./emsdk_env.sh
 # (On a normal cloud dev box with full internet access this should just
 # work. The sandbox this project was originally built in had network
 # access restricted to a handful of domains, which broke emsdk's own
-# downloader -- see HANDOFF.md's "WASM toolchain notes" section for the
+# downloader -- see HANDOFF.md's "Building and testing" section for the
 # apt-based workaround that was needed there. You probably don't need it.)
+#
+# Why em++ and not emcc: this is C++ code, and em++ is Emscripten's C++
+# driver (the g++ to emcc's gcc) -- it links libc++/libc++abi
+# automatically. Older Emscripten releases (e.g. Ubuntu's 3.1.x apt
+# package, which this was first built with) happened to link them from
+# plain emcc too, so emcc worked by accident; current emsdk releases don't,
+# and fail at link time with "undefined C++ symbols".
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,8 +29,8 @@ WEB="$ROOT/web"
 BUILD="$WEB/_wasm_build"
 DIST="$WEB/dist"
 
-if ! command -v emcc &> /dev/null; then
-    echo "error: emcc not found on PATH. See the comment at the top of this script." >&2
+if ! command -v em++ &> /dev/null; then
+    echo "error: em++ not found on PATH. See the comment at the top of this script." >&2
     exit 1
 fi
 
@@ -137,7 +144,7 @@ CPPEOF
 
 echo "== Compiling to WASM =="
 cd "$BUILD"
-emcc -std=c++20 -O2 -fexceptions \
+em++ -std=c++20 -O2 -fexceptions \
   -I include \
   src/component.cpp src/netlist.cpp src/mna_result.cpp src/dc_solver.cpp src/transient_solver.cpp src/ac_solver.cpp wasm_bindings.cpp \
   -o minispice_wasm.js \
