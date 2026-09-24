@@ -1,8 +1,5 @@
-// Transient analytic validation. Every test here computes its own
-// closed-form reference (derived in DESIGN_DECISIONS.md) and checks the
-// backward-Euler simulation against it at several time points, with a
-// tolerance sized to backward Euler's known first-order error at the
-// chosen dt (see test_convergence.cpp for the convergence check itself).
+// Transient runs vs. the textbook closed-form answers. Tolerances are sized
+// for backward Euler's first-order error at each dt.
 #include <cmath>
 #include <sstream>
 #include <string>
@@ -28,11 +25,10 @@ TEST_CASE("RC step response matches V_s*(1 - e^(-t/RC)) at several time points",
     for (auto& p : points) {
         double analytic = Vs * (1.0 - std::exp(-p.time / tau));
         double sim = node_voltage(circuit, p.solution, "out");
-        // Backward Euler's error scales with dt/tau; at dt=1e-5, tau=1e-3
-        // this stays comfortably under 1% of Vs across the whole run.
+        // error ~ dt/tau, so dt=1e-5 with tau=1e-3 stays under 1%
         REQUIRE_THAT(sim, WithinAbs(analytic, 0.02));
     }
-    // And exactly at t=0 the IC (0V) should be recovered essentially exactly.
+    // t=0 should be exactly the IC
     REQUIRE_THAT(node_voltage(circuit, points.front().solution, "out"), WithinAbs(0.0, 1e-6));
 }
 

@@ -1,27 +1,15 @@
 #!/usr/bin/env python3
 """
-compare_to_spice.py -- cross-validates mini-spice against ngspice.
+compare_to_spice.py - runs the same netlists through mini-spice and ngspice
+and prints a table of percent errors.
 
-For each example circuit, runs both mini-spice (via the built CLI) and
-ngspice (via `ngspice -b` and a `.control` block) on the *same* netlist,
-compares a handful of matching result points, and prints a percent-error
-table. This is the strongest correctness signal in the whole repo: ngspice
-is an independent, industry-standard implementation of the same underlying
-math, so close agreement here isn't "grading your own homework".
+Needs ngspice installed (apt install ngspice).
 
-Requires ngspice on PATH (`apt install ngspice` on Debian/Ubuntu).
-
-Two wrinkles this script works around, both documented in
-DESIGN_DECISIONS.md:
-  1. ngspice's default transient initial condition is a full DC operating
-     point (capacitors open, inductors shorted), not "0 unless IC=...".
-     We pass `UIC` on every `.tran` card so ngspice uses the netlist's
-     literal IC= values instead, matching mini-spice's convention.
-  2. ngspice's transient solver uses adaptive step control (trapezoidal by
-     default), so its output timepoints don't land on mini-spice's fixed
-     grid. We linearly interpolate ngspice's trace onto the exact
-     checkpoint times we want to compare, rather than assuming aligned
-     rows.
+Two things to watch out for:
+  1. ngspice starts transients from the DC operating point unless you pass
+     UIC, while mini-spice starts from IC=0. So every .tran here uses UIC.
+  2. ngspice uses adaptive time steps, so its points don't line up with
+     mini-spice's. Both traces get interpolated at the same checkpoint times.
 
 Usage: python3 tools/compare_to_spice.py
 """
@@ -239,11 +227,8 @@ def main():
     ns_vccs = run_ngspice_dc(vccs_text, ["out"])
     rows.append(("VCCS transconductance V(out)", "V(out)", ms_vccs["out"], ns_vccs["out"], pct_error(ms_vccs["out"], ns_vccs["out"])))
 
-    # --- Independent current source direction (DESIGN_DECISIONS.md #19) --
-    # A sign error here flips V(n) but keeps its magnitude, so these are
-    # built to make the direction visible: a lone source into a resistor
-    # (V(n) = +/-2V), and one fighting a voltage source (3V if right, 2V
-    # if backwards -- not just a sign flip, so it can't pass by symmetry).
+    # --- Current source direction (DESIGN_DECISIONS.md #19) ------------
+    # Second case gives 3V if right and 2V if reversed, not just a sign flip.
     isrc_cases = [
         ("I source into resistor V(n)", "I1 0 n DC 2m\nR1 n 0 1k\n"),
         ("I source + V source V(n)", "V1 in 0 DC 5\nR1 in n 1k\nI1 0 n DC 1m\nR2 n 0 1k\n"),
@@ -262,11 +247,8 @@ def main():
         ("RC step V(out)", "03_rc_step", 1e-5, 5e-3, "out", [0.5e-3, 1e-3, 2e-3, 3e-3, 5e-3]),
         ("Underdamped RLC V(out)", "04_rlc_underdamped", 2e-6, 3e-3, "out", [0.3e-3, 0.6e-3, 1.0e-3, 1.5e-3, 3e-3]),
         ("Overdamped RLC V(out)", "05_rlc_overdamped", 2e-6, 3e-3, "out", [0.5e-3, 1e-3, 2e-3, 3e-3]),
-        # Time-varying sources (Decision 17). Same dt/stop the committed
-        # examples/12_*/transient.csv and 13_*/transient.csv were generated
-        # with (and, for PULSE, the golden test in test_golden.cpp).
-        # Checkpoints avoid V(out)'s zero crossings, where a percent error
-        # is meaningless (a tiny absolute difference over a near-zero value).
+        # PULSE/SIN examples, same dt/stop as their saved CSVs. Checkpoints
+        # avoid zero crossings where percent error blows up.
         ("PULSE RC filter V(out)", "12_pulse_rc_filter", 2e-5, 10e-3, "out", [2e-3, 3e-3, 4e-3, 6e-3, 10e-3]),
         ("SIN source V(out)", "13_sine_source", 2e-5, 6e-3, "out", [0.5e-3, 1e-3, 3e-3, 4.5e-3, 6e-3]),
     ]
@@ -294,8 +276,8 @@ def main():
         ns_val = interp(ns_freqs, ns_mags, target_hz)
         rows.append((f"RC low-pass @ {target_hz:.1f} Hz", "|V(out)| dB", ms_val, ns_val, pct_error(ms_val, ns_val)))
 
-    # AC excitation from a current source: a direction error is a 180 degree
-    # phase error with an identical magnitude, so compare phase, not dB.
+    # AC from a current source. Reversing it only shows up in the phase
+    # (180 deg off), so compare phase here.
     iac_text = "I1 0 out DC 0 AC 1m\nR1 out 0 1k\nC1 out 0 100n\n"
     with tempfile.NamedTemporaryFile("w", suffix=".cir", delete=False) as f:
         f.write(iac_text)
@@ -312,8 +294,7 @@ def main():
         ns_val = interp(ns_freqs, ns_phases, target_hz)
         rows.append((f"I source AC @ {target_hz:.1f} Hz", "phase V(out) deg", ms_val, ns_val, pct_error(ms_val, ns_val)))
 
-    # Transient: a PULSE on an I source (Decision 17's waveform path, driven
-    # through the current source's stamp rather than the voltage source's).
+    # PULSE on a current source
     ipulse_text = "I1 0 out PULSE(0 5m 1m 0.1m 0.1m 2m 4m)\nR1 out 0 1k\nC1 out 0 1u\n"
     with tempfile.NamedTemporaryFile("w", suffix=".cir", delete=False) as f:
         f.write(ipulse_text)

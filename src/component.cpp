@@ -7,12 +7,8 @@ namespace minispice {
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
-// DC-operating-point approximation for an inductor: rather than adding a
-// zero-volt-source unknown (the textbook-exact way to force "short
-// circuit"), we stamp a very small resistance. This is documented as a
-// deliberate simplification in DESIGN_DECISIONS.md -- it keeps the unknown
-// count identical between DC-op and AC/transient solves, at the cost of a
-// tiny (numerically negligible) error versus an exact short.
+// At DC an inductor should be a short. Instead of adding an extra unknown
+// for it, just stamp a tiny resistance (DESIGN_DECISIONS.md #5).
 constexpr double kInductorDcShortResistance = 1e-6;
 
 std::complex<double> phasor(double magnitude, double phase_deg) {
@@ -22,13 +18,9 @@ std::complex<double> phasor(double magnitude, double phase_deg) {
 }  // namespace
 
 // ------------------------------------------------------------------- Waveform
-// PULSE: V1 until TD, linear ramp to V2 over TR, hold V2 for PW, linear
-// ramp back to V1 over TF, hold V1 until the period (PER) repeats -- the
-// standard SPICE PULSE shape. A PER of 0 (or omitted) means "repeat
-// immediately after one pulse" (period = TR+PW+TF), matching SPICE's own
-// default.
-// SIN: VO before TD; VO + VA*exp(-(t-TD)*THETA)*sin(2*pi*FREQ*(t-TD)) from
-// TD onward (THETA=0 gives an undamped sine, the common case).
+// PULSE: V1 until TD, ramp to V2 over TR, hold for PW, ramp back over TF,
+// repeat every PER (PER = 0 means TR+PW+TF).
+// SIN: VO before TD, then VO + VA*exp(-(t-TD)*THETA)*sin(2*pi*FREQ*(t-TD)).
 double Waveform::value_at(double t) const {
     if (kind == Kind::Sine) {
         if (t < sin_td) return vo;
@@ -61,14 +53,11 @@ void Resistor::stamp_ac(Matrix<std::complex<double>>& A, std::vector<std::comple
 }
 
 // --------------------------------------------------------------- Capacitor
-// Backward-Euler companion model: i_C(t) = (C/dt)*v(t) - (C/dt)*v_prev.
-// Realized as a conductance g_eq = C/dt in parallel with a Norton current
-// source of g_eq*v_prev. See DESIGN_DECISIONS.md for the full derivation
-// and the matrix-row sign check.
+// Backward Euler: i = (C/dt)*v - (C/dt)*v_prev, i.e. conductance C/dt in
+// parallel with a current source g_eq*v_prev. (DESIGN_DECISIONS.md #3)
 void Capacitor::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, double /*t*/, double dt) const {
     if (dt <= 0.0) {
-        // DC operating point: capacitor is an open circuit, contributes
-        // nothing.
+        // DC: open circuit
         return;
     }
     double g_eq = capacitance / dt;
@@ -86,13 +75,11 @@ void Capacitor::commit_timestep(const std::vector<double>& solution) {
 }
 
 // ---------------------------------------------------------------- Inductor
-// Backward-Euler companion model: i_L(t) = i_prev + (dt/L)*v(t). Realized
-// as a conductance g_eq = dt/L in parallel with a current source of value
-// -i_prev (see DESIGN_DECISIONS.md; the sign is opposite the capacitor's
-// because i_prev adds to the branch current instead of subtracting).
+// Backward Euler: i = i_prev + (dt/L)*v. Note the current source is
+// -i_prev, opposite sign from the capacitor. (DESIGN_DECISIONS.md #4)
 void Inductor::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, double /*t*/, double dt) const {
     if (dt <= 0.0) {
-        // DC operating point: approximate short circuit.
+        // DC: ~short
         stamp_conductance(A, node_p, node_n, 1.0 / kInductorDcShortResistance);
         last_dt_ = 0.0;
         return;
@@ -104,11 +91,9 @@ void Inductor::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, doub
 }
 void Inductor::stamp_ac(Matrix<std::complex<double>>& A, std::vector<std::complex<double>>& b, double omega) const {
     (void)b;
-    // Admittance of an inductor is 1/(j*omega*L) = -j/(omega*L).
+    // Y = 1/(jwL) = -j/(wL)
     if (omega <= 0.0) {
-        // omega == 0 (DC point of an AC sweep, or a degenerate request):
-        // an ideal inductor is a short at DC. Approximate the same way the
-        // time-domain DC-op path does, for consistency.
+        // omega = 0: treat as a short, same as the DC path
         stamp_conductance(A, node_p, node_n, std::complex<double>(1.0 / kInductorDcShortResistance, 0.0));
         return;
     }
@@ -124,12 +109,9 @@ void Inductor::commit_timestep(const std::vector<double>& solution) {
 }
 
 // ----------------------------------------------------------- VoltageSource
-// Adds one extra unknown (its own branch current) and a constraint row
-// forcing v_p - v_n = dc_value (or the AC phasor, for stamp_ac) -- or, if
-// a transient waveform is attached, the waveform's value at time t instead
-// (dt > 0 selects a transient step; DC operating point, dt <= 0, always
-// uses dc_value, matching SPICE .op behavior for a source with an attached
-// PULSE/SIN).
+// Extra unknown for the branch current, plus a row forcing
+// v_p - v_n = value. In transient with a waveform the value is the
+// waveform at time t; at DC it's always dc_value.
 void VoltageSource::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, double t, double dt) const {
     double v = (has_waveform && dt > 0.0) ? waveform.value_at(t) : dc_value;
     auto br = static_cast<std::size_t>(branch_index);
@@ -161,24 +143,10 @@ void VoltageSource::stamp_ac(Matrix<std::complex<double>>& A, std::vector<std::c
 }
 
 // ----------------------------------------------------------- CurrentSource
-// Injects dc_value (or its AC phasor, or a waveform's value at t during a
-// transient step) directly into the RHS: no extra unknown needed, since an
-// ideal current source's defining equation is already in terms of known
-// quantities.
-//
-// Direction (SPICE's convention, checked against ngspice -- see
-// DESIGN_DECISIONS.md #19): for "I1 p n <value>", a positive value flows
-// from p *through the source* to n. So the source draws `value` out of
-// node p and delivers it into node n. Working through the KCL rows
-// ("current leaving the node through components = b(node)"):
-//   row p: the source carries `value` away from p, so moving that known
-//          term to the RHS gives b(p) -= value;
-//   row n: the source delivers `value` into n, so b(n) += value.
-// inject_current(b, x, y, i) adds i to x and subtracts it from y, so
-// that's inject_current(b, node_n, node_p, value) -- n first. (The first
-// version passed node_p first, which reversed every I source; the unit
-// test pinned the stamp it had, and nothing compared a circuit against
-// ngspice, so it went unnoticed.)
+// Just goes in the RHS, no extra unknown.
+// "I1 p n": current flows p -> through source -> n, so it leaves node p
+// (b[p] -= i) and enters node n (b[n] += i). That's why node_n is passed
+// first. I had this backwards originally (DESIGN_DECISIONS.md #19).
 void CurrentSource::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, double t, double dt) const {
     (void)A;
     double i = (has_waveform && dt > 0.0) ? waveform.value_at(t) : dc_value;
@@ -190,12 +158,9 @@ void CurrentSource::stamp_ac(Matrix<std::complex<double>>& A, std::vector<std::c
 }
 
 // ------------------------------------------------------------------ Diode
-// Shockley equation I(V) = Is*(exp(V/a) - 1), a = N*Vt. Newton-Raphson
-// linearizes this at guess_voltage into a tangent-line companion model:
-//   G_eq = dI/dV|_guess = (Is/a) * exp(guess/a)
+// I = Is*(exp(V/a) - 1), a = N*Vt. Linearize at the current guess:
+//   G_eq = (Is/a) * exp(guess/a)
 //   I_eq = I(guess) - G_eq*guess
-// stamped exactly like the capacitor's Norton model (same helpers, same
-// row-sign derivation) -- see DESIGN_DECISIONS.md for the full derivation.
 void Diode::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, double /*t*/, double /*dt*/) const {
     double a = ideality * kThermalVoltage;
     double exp_term = std::exp(guess_voltage / a);
@@ -205,10 +170,8 @@ void Diode::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, double 
     stamp_conductance(A, node_p, node_n, g_eq);
     inject_current(b, node_p, node_n, -i_eq);
 }
-// AC uses the diode's small-signal conductance at whatever guess_voltage
-// its last DC solve converged to (solve_ac_sweep computes that bias point
-// first for exactly this reason) -- a fixed real admittance, since this
-// model has no junction capacitance to add frequency dependence.
+// Small-signal conductance at the DC bias point (solve_ac_sweep runs the
+// DC solve first). No junction capacitance, so it's purely real.
 void Diode::stamp_ac(Matrix<std::complex<double>>& A, std::vector<std::complex<double>>& b, double /*omega*/) const {
     (void)b;
     double a = ideality * kThermalVoltage;
@@ -221,13 +184,8 @@ double Diode::update_nr_guess(const std::vector<double>& solution) {
     double vn = node_n >= 0 ? solution[static_cast<std::size_t>(node_n)] : 0.0;
     double v_new = vp - vn;
     double a = ideality * kThermalVoltage;
-    // Voltage-step limiting: cap the change to a bounded number of thermal
-    // voltages per iteration so one wild solve can't send the *next*
-    // iteration's exp(V/a) toward overflow. A simplified relative of
-    // SPICE's "pnjlim" algorithm; see DESIGN_DECISIONS.md for why this
-    // bound, and its known limits (a diode wired directly across an ideal
-    // source with no current-limiting resistor is a pathological circuit
-    // this -- like real diodes -- does not handle gracefully).
+    // Limit each step to 10*a so exp() can't blow up on the next iteration
+    // (a simple version of SPICE's pnjlim).
     constexpr double kMaxStepThermalVoltages = 10.0;
     double max_delta = kMaxStepThermalVoltages * a;
     if (v_new - guess_voltage > max_delta) v_new = guess_voltage + max_delta;
@@ -238,29 +196,17 @@ double Diode::update_nr_guess(const std::vector<double>& solution) {
 }
 
 // ------------------------------------------------------------------- Bjt
-// See component.hpp for the Ebers-Moll equations. Linearizing I_B(Vbe,Vbc)
-// and I_C(Vbe,Vbc) at (guess_vbe, guess_vbc) needs all four partials
-// (a 2x2 Jacobian), because -- unlike the diode's single controlling
-// voltage -- each terminal current here depends on *both* junction
-// voltages:
-//   gpi = dI_B/dVbe = (Is/BF)/Vt * exp(guess_vbe/Vt)
-//   gmr = dI_B/dVbc = (Is/BR)/Vt * exp(guess_vbc/Vt)
-//   gmf = dI_C/dVbe = (Is)/Vt    * exp(guess_vbe/Vt)
-//   go  = dI_C/dVbc = -(Is*(1+1/BR))/Vt * exp(guess_vbc/Vt)
-// Substituting Vbe=v_B-v_E, Vbc=v_B-v_C into the linearized I_B/I_C and
-// collecting terms by node gives the nine matrix entries and three RHS
-// terms below; DESIGN_DECISIONS.md works through the KCL row derivation
-// (why row B gets +I_B's linearization, row C gets +I_C's, and row E gets
-// the negative of their sum) in full, the same way component.cpp's other
-// comments do for the two-terminal devices.
+// I_B and I_C both depend on Vbe and Vbc, so linearizing needs 4 partials:
+//   gpi = dI_B/dVbe = (Is/BF)/Vt * exp(vbe/Vt)
+//   gmr = dI_B/dVbc = (Is/BR)/Vt * exp(vbc/Vt)
+//   gmf = dI_C/dVbe = Is/Vt * exp(vbe/Vt)
+//   go  = dI_C/dVbc = -(Is*(1+1/BR))/Vt * exp(vbc/Vt)
+// Rows B and C get I_B and I_C, row E gets minus their sum.
+// Full derivation in DESIGN_DECISIONS.md #13.
 void Bjt::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, double /*t*/, double /*dt*/) const {
     double vt = kThermalVoltage;
-    // PNP is modeled as an NPN mirror: negate every voltage and current
-    // (s = -1), which the exp()/current terms below apply, while gpi/gmr/
-    // gmf/go come out identical either way (the two sign flips in the
-    // chain rule -- one from the exponent argument, one from the current
-    // -- cancel: s*s = 1). See DESIGN_DECISIONS.md #14 for the full
-    // derivation and why only i_c0/i_b0 need the extra factor of s.
+    // PNP = NPN with all voltages/currents negated (s = -1). The
+    // conductances don't change sign (s*s = 1), only the currents do.
     double s = is_pnp ? -1.0 : 1.0;
     double f1 = std::exp(s * guess_vbe / vt);  // exp(s*Vbe/Vt)
     double f2 = std::exp(s * guess_vbc / vt);  // exp(s*Vbc/Vt)
@@ -297,11 +243,8 @@ void Bjt::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, double /*
     add_b(node_c, -i_c_eq);
     add_b(node_e, i_b_eq + i_c_eq);
 }
-// AC with a BJT present is refused up front by solve_ac_sweep() (same
-// reasoning as the diode -- no DC bias point is established before an AC
-// sweep yet), so this is never called in practice; it's implemented
-// anyway (the small-signal conductances at whatever guess point the
-// component currently holds) so the interface has no silently-wrong stub.
+// Small-signal conductances at the DC bias point (solve_ac_sweep runs the
+// DC solve first).
 void Bjt::stamp_ac(Matrix<std::complex<double>>& A, std::vector<std::complex<double>>& b, double /*omega*/) const {
     (void)b;
     double vt = kThermalVoltage;
@@ -352,13 +295,8 @@ double Bjt::update_nr_guess(const std::vector<double>& solution) {
 }
 
 // ------------------------------------------------------------------ Vcvs
-// v(out_p)-v(out_n) = gain*(v(ctrl_p)-v(ctrl_n)) -- an ideal voltage
-// source whose "dc_value" is a linear function of two other nodes'
-// unknowns instead of a constant. Same branch-row structure as
-// VoltageSource::stamp_time_domain (same four A(branch,node)/A(node,branch)
-// entries for out_p/out_n), except the RHS constant is replaced by two
-// more A entries on the controlling nodes -- linear in the unknowns, so it
-// belongs in the matrix, not b.
+// Same as a voltage source, except instead of a constant on the RHS the
+// branch row gets -gain on ctrl_p and +gain on ctrl_n.
 void Vcvs::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, double /*t*/, double /*dt*/) const {
     (void)b;
     auto br = static_cast<std::size_t>(branch_index);
@@ -394,13 +332,8 @@ void Vcvs::stamp_ac(Matrix<std::complex<double>>& A, std::vector<std::complex<do
 }
 
 // ------------------------------------------------------------------ Vccs
-// Current gm*(v(ctrl_p)-v(ctrl_n)) flows from out_p to out_n through the
-// device (resistor-like row convention -- see component.hpp for why this
-// isn't "injected into out_p" despite the name). No extra unknown: the
-// "current source value" is already linear in existing node-voltage
-// unknowns, so (unlike an independent current source, whose fixed value
-// goes in b) it goes directly in A, as a transconductance stamp between
-// two different terminal pairs.
+// gm*(v(ctrl_p) - v(ctrl_n)) flows out_p -> out_n. It's linear in the node
+// voltages so it goes straight into A.
 void Vccs::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, double /*t*/, double /*dt*/) const {
     (void)b;
     auto p = out_p, n = out_n, cp = ctrl_p, cn = ctrl_n;

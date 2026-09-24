@@ -1,8 +1,5 @@
-// PULSE/SIN waveform validation. Waveform::value_at() is checked directly
-// against hand-computed points first (the shape itself), then a full
-// transient run is cross-checked against ngspice (with UIC on both sides
-// -- see DESIGN_DECISIONS.md #17 for why that flag matters here, the same
-// lesson learned earlier for the plain RC/RLC transient comparisons).
+// PULSE/SIN tests: Waveform::value_at() against hand-computed points, then
+// full transient runs. (The ngspice comparison is in tools/compare_to_spice.py.)
 #include <cmath>
 
 #include <catch2/catch_test_macros.hpp>
@@ -143,24 +140,19 @@ TEST_CASE("Netlist rejects an unterminated PULSE(...) clause", "[waveform][netli
 }
 
 TEST_CASE("Repeated PULSE through an RC filter matches the expected charge/discharge pattern", "[waveform][transient]") {
-    // Same circuit and parameters validated against ngspice separately
-    // (docs/ngspice_comparison.md): within the plateau (1.1ms-3.1ms,
-    // V(in) held at 5V with the reactive element already well into that
-    // phase), V(out) should be approaching the plain RC charging curve
-    // measured from when the plateau began.
+    // Same circuit as examples/12. V(in) is 5V from 1.1ms to 3.1ms, so
+    // V(out) should be charging like a normal RC in that window.
     auto circuit = Circuit::parse("V1 in 0 PULSE(0 5 0.001 0.0001 0.0001 0.002 0.004)\nR1 in out 1k\nC1 out 0 1u\n");
     auto points = solve_transient(circuit, 2e-5, 0.01);
 
-    // Before TD, V(out) should stay at 0 (capacitor starts at IC=0, input is 0).
+    // before TD everything is still 0
     for (auto& p : points) {
         if (p.time < 0.0009) {
             REQUIRE_THAT(node_voltage(circuit, p.solution, "out"), WithinAbs(0.0, 1e-6));
         }
     }
-    // Deep into the first plateau (V(in)=5V held since t=1.1ms), V(out)
-    // should be climbing monotonically toward 5V, consistent with normal
-    // RC charging (tau = 1k*1uF = 1ms, so by t=3.0ms -- about 1.9ms into
-    // the plateau -- it should be well past halfway to 5V).
+    // tau = 1ms, so by t=3ms (1.9ms into the pulse) it should be well
+    // past halfway and still rising
     for (auto& p : points) {
         if (p.time > 0.0029 && p.time < 0.0031) {
             REQUIRE(node_voltage(circuit, p.solution, "out") > 3.5);
@@ -170,10 +162,8 @@ TEST_CASE("Repeated PULSE through an RC filter matches the expected charge/disch
 }
 
 TEST_CASE("SIN source transient output tracks the expected input waveform exactly (no reactive elements)", "[waveform][transient]") {
-    // A pure resistive load means V(node) == the source waveform itself,
-    // exactly (no filtering) -- the most direct possible check that the
-    // *transient solver*, not just Waveform::value_at() in isolation,
-    // evaluates the source at the right absolute time each step.
+    // Only resistors, so V(node) should equal the source exactly. Checks the
+    // solver evaluates the source at the right time each step.
     auto circuit = Circuit::parse("V1 in 0 SIN(1 2 500 0 0)\nR1 in 0 1k\n");
     auto points = solve_transient(circuit, 2e-5, 0.004);
     for (auto& p : points) {

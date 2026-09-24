@@ -29,12 +29,9 @@ bool is_ground_name(const std::string& name) {
     return lower == "0" || lower == "gnd";
 }
 
-// Parses a SPICE-style "KEYWORD(v1 v2 ... vn)" clause that may span
-// several whitespace-separated tokens (e.g. "PULSE(0" "5" "1m" ... "4m)").
-// tokens[idx] must already start with keyword_lower + "(" (checked by the
-// caller before calling this). Advances idx past the token containing the
-// closing ')' and returns the parsed numeric values in order. Throws
-// ParseError (citing component_name) if the closing ')' is never found.
+// Parses "PULSE(0 5 1m ...)" style clauses, which get split across several
+// tokens. tokens[idx] starts with "keyword(". Moves idx past the ')' and
+// returns the numbers.
 std::vector<double> parse_parenthesized_values(const std::vector<std::string>& tokens, std::size_t& idx,
                                                 const std::string& keyword_lower, int line_number,
                                                 const std::string& component_name) {
@@ -49,7 +46,7 @@ std::vector<double> parse_parenthesized_values(const std::vector<std::string>& t
             parts.push_back(s);
         }
     };
-    // First token has the "keyword(" prefix to strip (length = keyword + '(').
+    // skip past "keyword("
     consume(tokens[idx].substr(keyword_lower.size() + 1));
     ++idx;
     while (!closed) {
@@ -125,9 +122,7 @@ Component* Circuit::find(const std::string& name) const {
 }
 
 namespace {
-// Parses "IC=<value>" (case-insensitive on "IC"). Returns std::nullopt if
-// the token isn't an IC= specifier at all (so the caller can treat it as a
-// parse error for that position instead of silently swallowing garbage).
+// "IC=<value>" -> value, or nullopt if the token isn't an IC= at all.
 std::optional<double> try_parse_ic(const std::string& token) {
     auto eq = token.find('=');
     if (eq == std::string::npos) return std::nullopt;
@@ -145,7 +140,7 @@ Circuit Circuit::parse(const std::string& netlist_text) {
 
     while (std::getline(stream, raw_line)) {
         ++line_number;
-        // Strip inline comments starting with '*' or '#' anywhere on the line.
+        // '*' or '#' starts a comment anywhere on the line
         std::string line = raw_line;
         auto comment_pos = line.find_first_of("*#");
         if (comment_pos != std::string::npos) line = line.substr(0, comment_pos);
@@ -157,10 +152,8 @@ Circuit Circuit::parse(const std::string& netlist_text) {
         char prefix = static_cast<char>(std::toupper(static_cast<unsigned char>(name[0])));
 
         try {
-            // Every component needs at least "name node1 node2" (3
-            // fields); a diode's IS/N are optional so it can stop there.
-            // A BJT needs a 4th field (its third node, the emitter) but no
-            // value field; everything else needs a 4th value field.
+            // Need at least "name n1 n2". Diodes can stop there; everything
+            // else needs a 4th field (a value, or the emitter for a BJT).
             std::size_t min_fields = (prefix == 'D') ? 3 : (prefix == 'E' || prefix == 'G') ? 6 : 4;
             if (tokens.size() < min_fields) {
                 std::string shape = (prefix == 'D')                       ? "name node1 node2"
@@ -220,12 +213,8 @@ Circuit Circuit::parse(const std::string& netlist_text) {
                         ++idx;
                     }
 
-                    // A transient waveform (PULSE/SIN) is optional and, if
-                    // present, comes right after any "DC <value>" clause.
-                    // If no DC value was given, its rest_value() (PULSE's
-                    // V1, SIN's VO) becomes the DC operating point value --
-                    // matching standard SPICE behavior for a source with an
-                    // attached waveform and no separate DC spec.
+                    // Optional PULSE/SIN after the DC value. If there's no DC
+                    // value, use the waveform's V1/VO (same as SPICE).
                     Waveform waveform;
                     bool has_waveform = false;
                     if (idx < tokens.size()) {
@@ -267,8 +256,7 @@ Circuit Circuit::parse(const std::string& netlist_text) {
                             }
                             has_waveform = true;
                         } else if (!dc_explicit) {
-                            // Shorthand: a bare number where DC would go,
-                            // with no "DC" keyword (e.g. "V1 in 0 5").
+                            // "V1 in 0 5" without the DC keyword
                             dc_value = parse_value(tokens[idx]);
                             dc_explicit = true;
                             ++idx;
@@ -298,12 +286,8 @@ Circuit Circuit::parse(const std::string& netlist_text) {
                             src->has_waveform = true;
                             src->waveform = waveform;
                         }
-                        // Node discovery isn't finished until the whole file
-                        // is parsed, so we can't know the final node count
-                        // yet. Stash the *relative* ordinal among voltage
-                        // sources here and fix it up to an absolute system
-                        // index in a second pass below, once num_nodes() is
-                        // final.
+                        // Don't know the node count yet, so store the index
+                        // among sources for now and fix it up after parsing.
                         src->set_branch_index(static_cast<int>(circuit.extra_unknowns_));
                         circuit.extra_unknowns_ += 1;
                         circuit.components_.push_back(std::move(src));
@@ -344,9 +328,7 @@ Circuit Circuit::parse(const std::string& netlist_text) {
                 }
                 case 'Q': {
                     // Q<name> <collector> <base> <emitter> [IS=<val>] [BF=<val>] [BR=<val>] [TYPE=NPN|PNP]
-                    // p/n from the generic pre-switch resolution are
-                    // collector/base respectively; the emitter is this
-                    // type's own third node.
+                    // p/n are collector/base here, the emitter is the 3rd node
                     if (tokens.size() < 4) {
                         throw ParseError(line_number, "BJT '" + name + "' needs a third node (the emitter)");
                     }
@@ -398,11 +380,7 @@ Circuit Circuit::parse(const std::string& netlist_text) {
                     int ctrl_n = circuit.resolve_node(tokens[4]);
                     double gain = parse_value(tokens[5]);
                     auto src = std::make_unique<Vcvs>(name, p, n, ctrl_p, ctrl_n, gain);
-                    // Same relative-ordinal-now / fixed-up-later scheme as
-                    // VoltageSource (see the second pass below) -- Vcvs
-                    // also needs one extra unknown, and shares the same
-                    // running counter so the two types' branch indices
-                    // never collide.
+                    // Needs a branch current like V, same counter so they don't collide
                     src->set_branch_index(static_cast<int>(circuit.extra_unknowns_));
                     circuit.extra_unknowns_ += 1;
                     circuit.components_.push_back(std::move(src));
@@ -426,12 +404,8 @@ Circuit Circuit::parse(const std::string& netlist_text) {
         }
     }
 
-    // Second pass: node discovery is now complete (num_nodes() is final),
-    // so convert every extra-unknown component's relative ordinal into its
-    // true, absolute row/column index in the [node voltages | branch
-    // currents] unknown vector. Generic across every component reporting
-    // extra_unknowns() > 0 (currently VoltageSource and Vcvs), not
-    // hardcoded to voltage sources specifically.
+    // Now that the node count is known, turn the branch indices into real
+    // row numbers (they go after all the node voltages).
     const int base = static_cast<int>(circuit.num_nodes());
     for (auto& c : circuit.components_) {
         if (c->extra_unknowns() > 0) {

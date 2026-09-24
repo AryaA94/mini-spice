@@ -1,5 +1,4 @@
-// Unit tests for the matrix / Gaussian-elimination layer: verify against
-// hand-computed linear systems, not just "does it run".
+// Gaussian elimination vs. small systems solved by hand.
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 

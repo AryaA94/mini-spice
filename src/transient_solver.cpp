@@ -13,18 +13,9 @@ namespace {
 constexpr int kMaxNewtonIterations = 100;
 constexpr double kNewtonToleranceVolts = 1e-9;
 
-// Stamps and solves one timestep landing at absolute time `t_target`
-// (backward Euler's implicit convention: a time-varying source is
-// evaluated at the *end* of the step, not the start -- see
-// DESIGN_DECISIONS.md #17), iterating to Newton-Raphson convergence if
-// the circuit has a nonlinear component (a purely linear circuit
-// converges in exactly one iteration -- see dc_solver.cpp for why that's
-// numerically identical to a plain single solve). A nonlinear component's
-// guess_voltage is *not* reset here: it carries over from the previous
-// timestep (continuity assumption -- the diode's voltage doesn't jump
-// between adjacent timesteps in a physically well-posed circuit), which is
-// both correct and converges in far fewer iterations than restarting from
-// 0V every step. solve_transient() resets it once, at the start of a run.
+// Solves one step ending at t_target (sources are evaluated at the end of
+// the step, since backward Euler is implicit). Newton guesses carry over
+// from the previous step, which converges much faster than starting from 0.
 std::vector<double> assemble_and_solve_step(const Circuit& circuit, double t_target, double dt) {
     std::size_t n = circuit.system_size();
 
@@ -76,13 +67,9 @@ std::vector<TransientPoint> solve_transient(const Circuit& circuit, double dt, d
     std::vector<TransientPoint> points;
     points.reserve(static_cast<std::size_t>(stop_time / dt) + 2);
 
-    // t = 0 sample: reuse the ordinary backward-Euler companion stamp with a
-    // step many orders of magnitude smaller than the requested dt -- see
-    // DESIGN_DECISIONS.md for why this gives the textbook-correct "reactive
-    // element behaves as an ideal source at its IC" result without a second
-    // stamping mode. A nonlinear component's own IC is always 0V (reset
-    // above), so it participates in this same tiny-step solve normally. Any
-    // time-varying source is evaluated at t=0 here, its own starting point.
+    // t = 0: do a normal step with a tiny dt. That makes caps act like
+    // voltage sources at their IC and inductors like current sources,
+    // without a separate stamping mode (DESIGN_DECISIONS.md #6).
     constexpr double kIcStepFraction = 1e-9;
     points.push_back({0.0, assemble_and_solve_step(circuit, 0.0, dt * kIcStepFraction)});
 

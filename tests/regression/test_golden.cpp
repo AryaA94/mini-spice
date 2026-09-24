@@ -1,9 +1,6 @@
-// Golden-file / regression tests. Each case under tests/golden/<name>/ has
-// a circuit.cir and a committed reference output generated once from a
-// validated build (see test_transient_analytic.cpp / test_ac_analytic.cpp /
-// test_dc.cpp for the independent correctness checks -- this file's job is
-// different: catch any *future* change that silently alters behavior,
-// whether or not anyone remembers to re-check it against physics that day).
+// Golden-file regression tests. Each tests/golden/<name>/ has a circuit and
+// saved output from a known-good build. The correctness checks are in the
+// unit tests; these just catch anything that changes the results later.
 #include <cmath>
 #include <fstream>
 #include <sstream>
@@ -40,10 +37,7 @@ std::vector<std::vector<std::string>> read_csv(const std::string& path) {
     return rows;
 }
 
-// Finds a column by its exact header text rather than a hardcoded index:
-// node discovery order (and therefore column order) depends on which line
-// of the netlist first mentions each node, so hardcoding "column 1" is
-// fragile the moment a netlist's node ordering changes.
+// Look columns up by name since the column order depends on node order.
 std::size_t column_index(const std::vector<std::string>& header, const std::string& name) {
     for (std::size_t i = 0; i < header.size(); ++i) {
         if (header[i] == name) return i;
@@ -85,9 +79,7 @@ TEST_CASE("Golden: underdamped RLC transient matches its committed reference", "
 TEST_CASE("Golden: voltage divider DC operating point matches its committed reference", "[golden]") {
     auto circuit = Circuit::parse_file(golden("divider_dc/circuit.cir"));
     auto solution = solve_dc(circuit);
-    // expected_dc.txt: "  V(out) = 5.000000 V" style lines from the CLI; we
-    // just re-check the two numbers we know that file encodes rather than
-    // re-parsing the CLI's prose format.
+    // expected_dc.txt is CLI output; just check the values we know are in it
     REQUIRE_THAT(node_voltage(circuit, solution, "in"), WithinAbs(10.0, 1e-9));
     REQUIRE_THAT(node_voltage(circuit, solution, "out"), WithinAbs(5.0, 1e-9));
     REQUIRE_THAT(source_current(circuit, solution, "V1"), WithinAbs(-0.005, 1e-9));
@@ -103,16 +95,14 @@ TEST_CASE("Golden: Wheatstone bridge DC operating point matches its committed re
 TEST_CASE("Golden: diode+resistor DC operating point matches its committed reference", "[golden]") {
     auto circuit = Circuit::parse_file(golden("diode_dc/circuit.cir"));
     auto solution = solve_dc(circuit);
-    // Committed reference (also independently verified against a
-    // Lambert-W closed form and ngspice in test_diode.cpp / docs/ngspice_comparison.md).
+    // (also checked against Lambert W and ngspice, see test_diode.cpp)
     REQUIRE_THAT(node_voltage(circuit, solution, "a"), WithinAbs(0.6928878327462407, 1e-6));
 }
 
 TEST_CASE("Golden: BJT fixed-bias DC operating point matches its committed reference", "[golden]") {
     auto circuit = Circuit::parse_file(golden("bjt_dc/circuit.cir"));
     auto solution = solve_dc(circuit);
-    // Committed reference (also independently verified against a
-    // fresh 2D Newton-Raphson solve and ngspice in test_bjt.cpp / docs/ngspice_comparison.md).
+    // (also checked in test_bjt.cpp)
     REQUIRE_THAT(node_voltage(circuit, solution, "b1"), WithinAbs(0.8112793033, 1e-6));
     REQUIRE_THAT(node_voltage(circuit, solution, "col"), WithinAbs(5.8112793033, 1e-6));
 }
@@ -120,7 +110,7 @@ TEST_CASE("Golden: BJT fixed-bias DC operating point matches its committed refer
 TEST_CASE("Golden: PNP fixed-bias DC operating point matches its committed reference", "[golden]") {
     auto circuit = Circuit::parse_file(golden("pnp_dc/circuit.cir"));
     auto solution = solve_dc(circuit);
-    // The exact mirror of the NPN golden case above.
+    // mirror of the NPN case
     REQUIRE_THAT(node_voltage(circuit, solution, "b1"), WithinAbs(-0.8112793033, 1e-6));
     REQUIRE_THAT(node_voltage(circuit, solution, "col"), WithinAbs(-5.8112793033, 1e-6));
 }
@@ -153,11 +143,7 @@ TEST_CASE("Golden: RC low-pass AC sweep matches its committed reference", "[gold
 
     REQUIRE(points.size() == rows.size() - 1);
     for (std::size_t i = 0; i < points.size(); ++i) {
-        // Relative tolerance here: the golden CSV stores frequency as
-        // decimal text (see CLI's std::setprecision(10)), so round-tripping
-        // it back through stod loses a little precision versus the
-        // freshly-computed double -- an artifact of the text format, not a
-        // real behavior change.
+        // relative tolerance since the CSV only stores 10 digits
         REQUIRE_THAT(points[i].frequency_hz, Catch::Matchers::WithinRel(std::stod(rows[i + 1][0]), 1e-8));
         auto v = node_voltage_ac(circuit, points[i].solution, "out");
         double mag_db = 20.0 * std::log10(std::abs(v));

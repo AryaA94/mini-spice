@@ -1,27 +1,16 @@
 #!/usr/bin/env bash
 # web/build_web.sh
 #
-# Compiles the real C++ engine (../src, ../include) to a single
-# self-contained WASM+JS blob, then concatenates it with this directory's
-# hand-written UI (head_and_ui_start.html + ui_logic.js) into one
-# publishable HTML file: web/dist/mini-spice-web.html.
+# Compiles the C++ engine to WASM and glues it together with the UI
+# (head_and_ui_start.html + ui_logic.js) into dist/mini-spice-web.html.
 #
-# Requires Emscripten (em++, which ships alongside emcc). If you don't have it:
+# Needs Emscripten:
 #   git clone https://github.com/emscripten-core/emsdk.git
 #   cd emsdk && ./emsdk install latest && ./emsdk activate latest
 #   source ./emsdk_env.sh
-# (On a normal cloud dev box with full internet access this should just
-# work. The sandbox this project was originally built in had network
-# access restricted to a handful of domains, which broke emsdk's own
-# downloader -- see HANDOFF.md's "Building and testing" section for the
-# apt-based workaround that was needed there. You probably don't need it.)
 #
-# Why em++ and not emcc: this is C++ code, and em++ is Emscripten's C++
-# driver (the g++ to emcc's gcc) -- it links libc++/libc++abi
-# automatically. Older Emscripten releases (e.g. Ubuntu's 3.1.x apt
-# package, which this was first built with) happened to link them from
-# plain emcc too, so emcc worked by accident; current emsdk releases don't,
-# and fail at link time with "undefined C++ symbols".
+# Use em++, not emcc: newer versions of emcc don't link the C++ standard
+# library and fail with "undefined C++ symbols".
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,10 +29,8 @@ cp -r "$ROOT/include" "$BUILD/"
 cp -r "$ROOT/src" "$BUILD/"
 
 cat > "$BUILD/wasm_bindings.cpp" << 'CPPEOF'
-// See ../../HANDOFF.md and docs/ARCHITECTURE.md for context. This is a
-// thin C-linkage wrapper: each function takes a netlist in the same .cir
-// text format the CLI reads, and returns "OK\n<csv rows>" (same shape as
-// the CLI's --csv output) or "ERROR: <message>" on failure.
+// JS-callable wrappers. Each takes netlist text and returns
+// "OK\n<csv>" or "ERROR: <message>".
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -61,7 +48,7 @@ cat > "$BUILD/wasm_bindings.cpp" << 'CPPEOF'
 using namespace minispice;
 
 namespace {
-std::string g_buffer;  // reused across calls; ccall's "string" return type copies it out immediately
+std::string g_buffer;  // JS copies the string out right away, so reusing this is fine
 }
 
 extern "C" {
@@ -142,13 +129,8 @@ const char* ms_run_ac(const char* netlist, double start, double stop, int ppd) {
 }  // extern "C"
 CPPEOF
 
-# SINGLE_FILE_BINARY_ENCODE=0: embed the .wasm as base64, not as raw bytes
-# in a JS string literal. Newer Emscripten releases default to raw bytes
-# (smaller), but the page's WASM then contains tens of thousands of NUL
-# bytes inside an inline <script>, and the HTML spec has parsers replace
-# NUL in script text with U+FFFD -- silently corrupting the engine
-# depending on how the page is served. Base64 is plain ASCII and is what
-# the original (older-Emscripten) build produced anyway.
+# SINGLE_FILE_BINARY_ENCODE=0 embeds the wasm as base64. The newer default
+# puts raw bytes (including NULs) in the <script>, and browsers can mangle those.
 echo "== Compiling to WASM =="
 cd "$BUILD"
 em++ -std=c++20 -O2 -fexceptions \

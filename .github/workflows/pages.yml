@@ -1,14 +1,6 @@
-# Publishes the web tool (web/dist/mini-spice-web.html) to GitHub Pages as
-# the site's index.html, at https://aryaa94.github.io/mini-spice/.
-#
-# Deploys the *committed* page rather than rebuilding it with Emscripten,
-# so what goes live is byte-for-byte the file that was tested locally and
-# reviewed in the PR. It's still re-tested here before deploying: the
-# end-to-end web test (web/tests/ui_test.mjs) runs against it, using the
-# native CLI as its reference, and a failure stops the deploy.
-#
-# One-time setup in the repo: Settings -> Pages -> Build and deployment ->
-# Source: "GitHub Actions".
+# Deploys web/dist/mini-spice-web.html to https://aryaa94.github.io/mini-spice/
+# after running the web tests on it. Uses the committed file, so rebuild it
+# with web/build_web.sh before pushing.
 name: Deploy web tool to GitHub Pages
 
 on:
@@ -21,8 +13,7 @@ permissions:
   pages: write
   id-token: write
 
-# One deploy at a time; a newer push supersedes a queued one, but never
-# cancels a deploy that's already running.
+# don't cancel a deploy that's already running
 concurrency:
   group: pages
   cancel-in-progress: false

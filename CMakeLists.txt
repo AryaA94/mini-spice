@@ -12,13 +12,10 @@ endif()
 option(MINISPICE_ENABLE_SANITIZERS "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
 option(MINISPICE_BUILD_TESTS "Build the Catch2 test suite" ON)
 
-# Warning flags differ by compiler: GCC/Clang spell them -Wall -Wextra
-# -Wpedantic, MSVC rejects those outright (error D8021) and uses /W4
-# instead. Warnings only, not errors, on every compiler.
+# MSVC doesn't understand -Wall/-Wextra (fails with D8021), it uses /W4
 if(MSVC)
   set(MINISPICE_WARNINGS /W4)
-  # MSVC's <cmath> only defines M_PI (used by the CLI and tests) when
-  # this is set before it's included.
+  # needed for M_PI on MSVC
   add_compile_definitions(_USE_MATH_DEFINES)
 else()
   set(MINISPICE_WARNINGS -Wall -Wextra -Wpedantic)

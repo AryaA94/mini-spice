@@ -1,10 +1,8 @@
 #pragma once
 // ac_solver.hpp
 //
-// Small-signal AC sweep: rebuilds a complex-valued MNA system at each
-// frequency (R -> 1/R, C -> j*omega*C, L -> 1/(j*omega*L)) and solves it.
-// Sources contribute only their AC magnitude/phase (their DC value is
-// irrelevant here, matching standard SPICE .AC behavior).
+// AC sweep: builds a complex MNA system at each frequency and solves it.
+// Only the sources' AC magnitude/phase matter here, like SPICE .AC.
 
 #include <complex>
 #include <vector>
@@ -18,10 +16,8 @@ struct AcPoint {
     std::vector<std::complex<double>> solution;  // [node voltages | branch currents]
 };
 
-// Logarithmically-spaced sweep from start_hz to stop_hz (inclusive) with
-// `points_per_decade` points per decade -- the standard SPICE .AC DEC form.
-// Throws std::invalid_argument if start_hz <= 0, stop_hz < start_hz, or
-// points_per_decade <= 0.
+// Log sweep from start_hz to stop_hz, points_per_decade points per decade
+// (like .AC DEC). Throws std::invalid_argument on bad arguments.
 std::vector<AcPoint> solve_ac_sweep(const Circuit& circuit, double start_hz, double stop_hz, int points_per_decade);
 
 }  // namespace minispice

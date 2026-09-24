@@ -1,9 +1,6 @@
-// BJT (Ebers-Moll) validation. Same standard as the diode: a DC operating
-// point isn't trusted just because it "looks plausible" -- each analytic
-// case here is cross-checked against a *fresh*, independently-written
-// Newton-Raphson solve in Python (one with an analytic Jacobian, one with
-// a numerical/finite-difference Jacobian -- deliberately two different
-// methods) and against ngspice, documented in DESIGN_DECISIONS.md.
+// BJT tests. The reference operating points come from separate Newton
+// solves I wrote in Python (one with the analytic Jacobian, one with a
+// finite-difference Jacobian), and were also checked against ngspice.
 #include <cmath>
 
 #include <catch2/catch_test_macros.hpp>
@@ -23,18 +20,11 @@ using Catch::Matchers::WithinRel;
 using Catch::Matchers::ContainsSubstring;
 
 TEST_CASE("Bjt stamp matches the hand-derived four-term Jacobian at a given guess point", "[bjt][components]") {
-    // IS=1e-16, BF=100, BR=1, guess_vbe=0.6, guess_vbc=-3.0 (typical
-    // forward-active bias: base-emitter forward biased, base-collector
-    // reverse biased). Reference gpi/gmr/gmf/go/iB_eq/iC_eq computed once
-    // in a standalone Python script from the same formulas documented in
-    // component.hpp/component.cpp and DESIGN_DECISIONS.md.
+    // IS=1e-16, BF=100, BR=1 at vbe=0.6, vbc=-3.0 (forward active).
+    // Expected values computed in Python from the formulas.
     Bjt q("Q1", /*collector=*/0, /*base=*/1, /*emitter=*/2, 1e-16, 100.0, 1.0);
-    // Drive the guess to (0.6, -3.0). The per-step cap is 10*Vt =~0.2586V,
-    // so this needs several update_nr_guess() calls to actually get there
-    // (mirroring how the solver's iteration loop would arrive at it).
-    // solution is indexed by node: [collector, base, emitter] = [0,1,2];
-    // vbe = v(base)-v(emitter) = 0.6-0 = 0.6, vbc = v(base)-v(collector)
-    // = 0.6-3.6 = -3.0, so the collector entry must be 3.6, not -3.0.
+    // Step limit is 10*Vt per call, so it takes several calls to get there.
+    // solution = [C, B, E] = [3.6, 0.6, 0] gives vbe = 0.6, vbc = -3.0.
     for (int i = 0; i < 30; ++i) {
         double d = q.update_nr_guess(std::vector<double>{3.6, 0.6, 0.0});
         if (d < 1e-12) break;
@@ -81,9 +71,7 @@ TEST_CASE("Bjt reset_nr_state returns both guesses to 0V", "[bjt][components]") 
 TEST_CASE("Bjt update_nr_guess clamps large steps in Vbe and Vbc independently", "[bjt][components]") {
     Bjt q("Q1", 0, 1, 2, 1e-16, 100.0, 1.0);
     double vt = Diode::thermal_voltage();  // same constant, shared convention
-    // solution = [collector, base, emitter] = [-10.0, 5.0, 0.0] -> target
-    // vbe = 5.0-0.0 = 5.0V, target vbc = 5.0-(-10.0) = 15.0V: both far
-    // outside the per-step cap starting from the initial guess (0, 0).
+    // target vbe = 5V, vbc = 15V, way past the step limit
     double delta = q.update_nr_guess(std::vector<double>{-10.0, 5.0, 0.0});
     REQUIRE(q.guess_vbe_for_test() < 5.0);   // did not jump all the way to the 5.0V target
     REQUIRE(q.guess_vbc_for_test() < 15.0);  // did not jump all the way to the 15.0V target
@@ -112,10 +100,8 @@ TEST_CASE("Netlist rejects a BJT line missing its third node (the emitter)", "[b
 
 TEST_CASE("Fixed-bias BJT circuit matches an independent analytic-Jacobian Newton-Raphson solve", "[bjt][analytic]") {
     // VBB=5V->RB=100k->base; VCC=10V->RC=1k->collector; emitter grounded.
-    // Reference computed by a from-scratch 2D Newton-Raphson written in
-    // Python (analytic Jacobian, not this solver's code), converging to
-    // KCL residuals ~1e-18 -- and cross-checked against ngspice
-    // separately (see docs/ngspice_comparison.md).
+    // Reference: Python Newton solve with the analytic Jacobian
+    // (KCL residual ~1e-18), also matches ngspice.
     auto circuit = Circuit::parse(
         "VBB base 0 DC 5\n"
         "RB base b1 100k\n"
@@ -129,10 +115,8 @@ TEST_CASE("Fixed-bias BJT circuit matches an independent analytic-Jacobian Newto
 
 TEST_CASE("BJT with emitter degeneration matches an independent numerical-Jacobian Newton-Raphson solve", "[bjt][analytic]") {
     // VBB=5V->RB=220k->base; VCC=12V->RC=2.2k->collector; emitter->RE=1k->ground.
-    // Reference computed by a *different* from-scratch Python solve than
-    // the case above -- this one uses a numerical (finite-difference)
-    // Jacobian instead of the analytic formulas, a deliberately
-    // independent method, also converging to KCL residuals ~1e-18.
+    // Reference: Python solve with a finite-difference Jacobian this time,
+    // so it doesn't depend on the derivative formulas at all.
     auto circuit = Circuit::parse(
         "VBB base 0 DC 5\n"
         "RB base b1 220k\n"
@@ -147,11 +131,7 @@ TEST_CASE("BJT with emitter degeneration matches an independent numerical-Jacobi
 }
 
 TEST_CASE("Fixed-bias BJT collector current is approximately BF times the base current", "[bjt][analytic]") {
-    // A physical sanity check independent of the exact operating point:
-    // in forward-active operation (which this bias point is), IC/IB
-    // should land close to BF -- not a tight check (BR/leakage terms make
-    // it not *exactly* BF), but a real transistor-behavior smoke test
-    // that a broken sign somewhere would very likely fail.
+    // Sanity check: in forward active, IC/IB should be close to BF.
     auto circuit = Circuit::parse(
         "VBB base 0 DC 5\n"
         "RB base b1 100k\n"
@@ -165,9 +145,7 @@ TEST_CASE("Fixed-bias BJT collector current is approximately BF times the base c
 }
 
 TEST_CASE("solve_ac_sweep computes a correct small-signal response for a circuit containing a BJT", "[bjt][ac]") {
-    // Same independent finite-difference cross-check as the diode's AC
-    // test: perturb the DC base-bias source by +-eps, compare the slope
-    // against the AC solver's small-signal gain at the collector.
+    // Nudge VBB by +-eps and compare the DC slope to the AC gain.
     auto make_circuit = [](double vbb) {
         return Circuit::parse("VBB base 0 DC " + std::to_string(vbb) +
                                "\nRB base b1 100k\nVCC vcc 0 DC 10\nRC vcc col 1k\nQ1 col b1 0 IS=1e-16 BF=100 BR=1\n");
@@ -205,10 +183,8 @@ TEST_CASE("BJT transient settles to the same operating point as the DC solve", "
 }
 
 TEST_CASE("PNP fixed-bias circuit is the exact mirror of the NPN fixed-bias circuit", "[bjt][pnp][analytic]") {
-    // Same topology as the NPN fixed-bias test above, with every supply
-    // negated and TYPE=PNP: the PNP model is defined as an NPN mirror (see
-    // DESIGN_DECISIONS.md #14), so the operating point should be the exact
-    // negation of the NPN case's already-validated 0.8112793033 / 5.8112793033.
+    // NPN fixed-bias circuit with the supplies flipped and TYPE=PNP. Should
+    // be exactly the negative of the NPN answer (0.8112793033 / 5.8112793033).
     auto circuit = Circuit::parse(
         "VBB base 0 DC -5\n"
         "RB base b1 100k\n"
