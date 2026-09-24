@@ -785,3 +785,44 @@ with an `I` source: each one's contribution flips sign. None of the
 repo's examples, golden files or web presets contained one, so none of
 them changed. Any netlist written against the old behavior needs its
 two `I`-source nodes swapped to keep the same result.
+
+## 20. The web form restricts names to letters, digits and `_`, because they become netlist text
+
+The browser form builds a netlist line by pasting its fields together
+(Decision 18), so anything a person types into a name or node field is
+parsed by the same tokenizer as a hand-written `.cir` file. Before this
+restriction, three inputs quietly changed what the parser read:
+
+- **Whitespace.** The parser splits a line on whitespace, so a node typed
+  as `in put` produced `V1 in put 0 DC 5`: a source between nodes `in`
+  and `put`, followed by fields the parser read as something else. It
+  gave no error, just a different circuit from the one on screen. This is
+  the worst kind of bug for this project: a plausible-looking wrong
+  answer.
+- **`*` and `#`.** These start a comment anywhere on a line
+  (`netlist.cpp`), so `a#b` cut the line short and gave a confusing
+  "expected at least 4 fields" error.
+- **Markup.** Names were also inserted into the page as HTML, so a name
+  like `<img ...>` rendered as an element. Rendering now escapes all user
+  text too, since saved circuits load from browser storage without going
+  through the form.
+
+Letters, digits and `_` cover every realistic node or component name and
+can't be misread by the tokenizer, so that's the rule. It's enforced in
+the form rather than the engine because the CLI's netlist format is
+SPICE's, and SPICE allows more than this. The restriction exists only
+because the form assembles the text itself.
+
+**Capitalization.** This engine's node names are case-sensitive (`out`
+and `Out` are two separate nodes), while real SPICE treats them as the
+same node. Changing the engine would be a separate decision with its own
+validation. So for now the form flags a new node that differs from an
+existing one only in case, because that's almost always a typo that
+would leave a floating node. Component names are compared
+case-insensitively for duplicates, which matches SPICE.
+
+**Validation.** `web/tests/ui_test.mjs` checks each rejected input and its
+message, that saved circuits with hostile names render as text, and that
+all of these checks *fail* on the page as it was before the fix (38
+failures against the old build, including a `std::bad_alloc` from a run
+with 10^12 timesteps, which the step cap also now prevents).

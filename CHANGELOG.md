@@ -3,7 +3,43 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - PULSE/SIN in the web tool; current source direction fix
+## [Unreleased] - Web tool polish and input safety
+
+### Fixed (web tool)
+- **A node name containing a space silently built the wrong circuit**
+  (`in put` became two separate netlist fields). Names and nodes are now
+  limited to letters, digits and `_`. That also stops `*`/`#` (comment
+  characters to the parser) from truncating a line.
+- User-typed names were inserted into the page as raw HTML; all user text
+  is now escaped.
+- A tiny dt with a long stop time could exhaust memory (`std::bad_alloc`)
+  or hang the tab: transient runs are capped at 200,000 steps and AC sweeps
+  at 20,000 points, with an error saying how to adjust.
+- An AC sweep with no AC source plotted a flat -6000 dB line; it now
+  explains that a source needs an AC magnitude. A fractional
+  points/decade was silently truncated; it's now rejected.
+- Duplicate component names are caught case-insensitively (SPICE's
+  convention). A new node that differs from an existing one only in
+  capitalization is flagged, since node names are case-sensitive in this
+  engine and "Out" vs "out" would be two unconnected nodes.
+
+### Changed (web tool)
+- Charts: round-number ticks with one SI prefix per axis ("time (ms)"),
+  decade labels (10 ... 1M) with minor gridlines on AC plots, and a
+  hover/touch readout of exact values at any point. Charts are drawn at
+  the on-screen width, so text stays readable on phones.
+- Values shown in engineering notation ("100 kΩ", "-41.887 µA"), and
+  waveforms in SPICE suffix form (`PULSE(0 5 1m 100u 100u 2m 4m)`).
+- Every preset switches to its analysis (with matching settings) and runs
+  immediately. The RLC preset now uses the example's dt=2e-6, fine enough
+  to resolve the ringing.
+- Components can be edited in place (pencil button). Enter adds or saves,
+  Escape cancels an edit, and Enter in an analysis field runs it.
+- Results dim with a note when the circuit changes after a run. There's a
+  "download CSV" button, per-type example values in the form, and a link
+  to the source repo.
+
+## [0.6.0] - PULSE/SIN in the web tool; current source direction fix
 
 ### Changed (breaking)
 - **Independent current sources (`I`) now follow SPICE's direction**:

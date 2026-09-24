@@ -185,8 +185,8 @@ await section("PULSE preset reproduces examples/12_pulse_rc_filter", async () =>
   const dc = dcWeb(run(d, "dc")), dcRef = dcCli(path.join(REPO, "examples/12_pulse_rc_filter/circuit.cir"));
   check(dc.in === 0 && dc.out === 0 && dcRef.in === 0 && dcRef.out === 0, "DC operating point uses V1 (=0), same as the CLI");
   const tr = d.querySelector("#componentBody tr");
-  check(tr.children[3].textContent === "0V", "table Value column shows the DC value actually used (V1=0V)");
-  check(tr.children[4].textContent === "PULSE(0 5 0.001 0.0001 0.0001 0.002 0.004)", "table Extra column shows the waveform: " + tr.children[4].textContent);
+  check(tr.children[3].textContent === "0 V", "table Value column shows the DC value actually used (V1 = 0 V)");
+  check(tr.children[4].textContent === "PULSE(0 5 1m 100u 100u 2m 4m)", "table Extra column shows the waveform in SPICE suffix form: " + tr.children[4].textContent);
   check(errors.length === 0, "no console errors");
 });
 
@@ -315,6 +315,128 @@ await section("Form: SIN on a current source, with delay and damping (closed-for
   const ref = cliNetlist("I1 0 n DC 2m SIN(0 1m 1k 0.2m 500)\nR1 n 0 1k\n", ["tran", "--dt", "1e-5", "--stop", "5e-3"]);
   check(csvScore(run(d, "tran"), ref) <= 1, "transient matches native CLI on the hand-written netlist");
   check(errors.length === 0, "no console errors");
+});
+
+await section("Presets pick their analysis and run immediately", async () => {
+  const { w, d } = await loadPage();
+  const expect = {
+    "Voltage divider": "dc", "RC step": "tran", "RLC underdamped": "tran", "RC low-pass (AC)": "ac",
+    "Wheatstone bridge": "dc", "Diode clipper": "dc", "BJT fixed-bias": "dc", "PNP fixed-bias": "dc",
+    "VCVS amplifier": "dc", "VCCS transconductance": "dc", "PULSE into RC filter": "tran", "SIN into RC filter": "tran",
+  };
+  const presetNames = [...d.querySelectorAll("#presets .chip")].map(b => b.textContent).filter(n => n !== "Clear all");
+  check(presetNames.length === Object.keys(expect).length, `every preset (${presetNames.length}) has an expected analysis`);
+  for (const name of presetNames) {
+    clickPreset(d, name);
+    const shown = !d.getElementById("resultsCard").classList.contains("hidden");
+    const err = d.getElementById("runError").classList.contains("show") ? d.getElementById("runError").textContent : "";
+    check(d.querySelector(".tab.active").dataset.mode === expect[name] && shown && !err,
+          `"${name}" -> ${expect[name]} tab, results shown${err ? " (error: " + err + ")" : ""}`);
+  }
+  // RLC preset now runs at the example's dt (2e-6), fine enough to resolve
+  // the ringing; compare against the CLI on examples/04 at the same settings.
+  clickPreset(d, "RLC underdamped");
+  const ref = cli(["tran", path.join(REPO, "examples/04_rlc_underdamped/circuit.cir"), "--dt", "2e-6", "--stop", "3e-3"]);
+  check(csvScore(d.getElementById("rawData").value, ref) <= 1, "RLC preset's auto-run matches the CLI on examples/04 at dt=2e-6");
+});
+
+await section("Names and nodes that would corrupt the netlist are rejected", async () => {
+  const { w, d } = await loadPage();
+  const cases = [
+    [{ type: "V", name: "V1", nodeA: "in put", nodeB: "0", value: "5" }, "Node 'in put' can only use letters, digits and _ (no spaces or symbols)."],
+    [{ type: "V", name: "V1", nodeA: "a#b", nodeB: "0", value: "5" }, "Node 'a#b' can only use letters, digits and _ (no spaces or symbols)."],
+    [{ type: "V", name: "V1", nodeA: "a*b", nodeB: "0", value: "5" }, "Node 'a*b' can only use letters, digits and _ (no spaces or symbols)."],
+    [{ type: "R", name: "R1", nodeA: "<img src=x onerror=alert(1)>", nodeB: "0", value: "1k" }, "Node '<img src=x onerror=alert(1)>' can only use letters, digits and _ (no spaces or symbols)."],
+    [{ type: "R", name: "R-1", nodeA: "a", nodeB: "0", value: "1k" }, "Name 'R-1' can only use letters, digits and _ (no spaces or symbols)."],
+  ];
+  for (const [c, expected] of cases) {
+    const err = addViaForm(d, c);
+    check(err === expected, `${JSON.stringify(c.nodeA)} / ${c.name} -> "${err}"`);
+  }
+  check(rowsOf(w).length === 0, "none of them were added");
+  // Duplicate names are caught regardless of case, as SPICE treats them.
+  addViaForm(d, { type: "R", name: "R1", nodeA: "a", nodeB: "0", value: "1k" });
+  check(addViaForm(d, { type: "R", name: "r1", nodeA: "a", nodeB: "0", value: "2k" }) === "A component named 'R1' already exists.", "r1 vs existing R1 is a duplicate");
+  // A node differing only in case would silently be a separate node.
+  const err = addViaForm(d, { type: "R", name: "R2", nodeA: "A", nodeB: "0", value: "1k" });
+  check(err.startsWith("Node 'A' differs from the existing node 'a' only in capitalization"), "near-miss node 'A' vs 'a' caught: " + err.slice(0, 60));
+  check(addViaForm(d, { type: "R", name: "R3", nodeA: "a", nodeB: "GND", value: "1k" }) === "", "GND vs 0 (both ground) is not flagged");
+});
+
+await section("User text is escaped wherever it's shown", async () => {
+  // Rows can also come from localStorage, bypassing form validation, so the
+  // rendering itself must escape. Seed a hostile saved state directly.
+  const evil = "<img src=x onerror=window.__pwned=1>";
+  const state = { rows: [{ type: "V", name: "V1", nodeA: evil, nodeB: "0", dcValue: 1 }, { type: "R", name: "R1", nodeA: evil, nodeB: "0", value: 1000 }], mode: "dc" };
+  const { w, d } = await loadPage({ storage: { minispice_web_state_v1: JSON.stringify(state) } });
+  check(!d.querySelector("#componentBody img") && d.querySelector("#componentBody td:nth-child(3)").textContent.includes("<img"), "component table shows the text, not an <img> element");
+  check(!w.__pwned, "no script from a node name ran");
+});
+
+await section("Analysis parameters are checked before the engine runs", async () => {
+  const { w, d } = await loadPage();
+  clickPreset(d, "RC step");
+  const tranErr = (dt, stop) => { d.getElementById("tran-dt").value = dt; d.getElementById("tran-stop").value = stop; d.querySelector('.tab[data-mode="tran"]').click(); d.getElementById("runBtn").click();
+    const e = d.getElementById("runError"); return e.classList.contains("show") ? e.textContent : ""; };
+  check(tranErr("abc", "5m") === "dt: 'abc' isn't a number.", "non-numeric dt names the field");
+  check(tranErr("-1", "5m") === "dt must be positive.", "negative dt");
+  const huge = tranErr("1e-12", "1");
+  check(huge.startsWith("That's 1,000,000,000,000 timesteps"), "a tab-freezing step count is refused: " + huge.slice(0, 50));
+  check(tranErr("1e-5", "5e-3") === "", "normal settings still run");
+  const acErr = (start, stop, ppd) => { d.getElementById("ac-start").value = start; d.getElementById("ac-stop").value = stop; d.getElementById("ac-ppd").value = ppd; d.querySelector('.tab[data-mode="ac"]').click(); d.getElementById("runBtn").click();
+    const e = d.getElementById("runError"); return e.classList.contains("show") ? e.textContent : ""; };
+  check(acErr("10", "1e6", "20").startsWith("Nothing drives the AC sweep"), "AC with no AC source explains itself instead of plotting -6000 dB");
+  clickPreset(d, "RC low-pass (AC)");
+  check(acErr("10", "1e6", "2.5") === "points/decade must be a whole number, 1 or more.", "fractional points/decade refused (used to be silently truncated)");
+  check(acErr("0", "1e6", "20").startsWith("start frequency must be positive"), "zero start frequency");
+  check(acErr("1e6", "10", "20") === "stop frequency must be at least the start frequency.", "reversed sweep");
+  check(acErr("10", "1e6", "20") === "", "normal sweep still runs");
+});
+
+await section("Editing a component in place", async () => {
+  const { w, d } = await loadPage();
+  clickPreset(d, "PULSE into RC filter");
+  const before = netlistOf(w);
+  d.querySelectorAll("#componentBody .row-edit")[0].click();
+  check(d.getElementById("addBtn").textContent === "Save changes" && !d.getElementById("cancelEditBtn").hidden, "edit mode: button reads 'Save changes', Cancel shown");
+  check(d.getElementById("f-type").value === "V" && d.getElementById("f-wf").value === "PULSE" && d.getElementById("f-wf6").value === "0.002",
+        "form loaded with the row, waveform and exact values");
+  d.getElementById("addBtn").click();
+  check(netlistOf(w) === before, "saving an unchanged row leaves the netlist byte-identical");
+  d.querySelectorAll("#componentBody .row-edit")[1].click();         // R1
+  d.getElementById("f-value").value = "2k";
+  d.getElementById("f-value").dispatchEvent(new w.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  check(netlistOf(w).split("\n")[1] === "R1 in out 2000" && rowsOf(w).length === 3, "Enter saves the edit in place (R1 now 2k, still 3 rows)");
+  check(d.getElementById("resultsCard").classList.contains("stale"), "results are marked stale after the circuit changed");
+  d.getElementById("runBtn").click();
+  check(!d.getElementById("resultsCard").classList.contains("stale"), "...and un-marked after running again");
+  d.querySelectorAll("#componentBody .row-edit")[2].click();
+  d.getElementById("cancelEditBtn").click();
+  check(d.getElementById("addBtn").textContent === "+ Add" && d.getElementById("f-name").value === "" && rowsOf(w).length === 3, "Cancel leaves the row alone and resets the form");
+  d.querySelectorAll("#componentBody .row-edit")[2].click();
+  d.getElementById("f-name").value = "R1";
+  d.getElementById("addBtn").click();
+  check(d.getElementById("addError").textContent === "Names for a C must start with 'C' (e.g. C1).", "an edit is validated like an add");
+  d.getElementById("f-name").value = "C1";
+  d.getElementById("addBtn").click();
+  check(d.getElementById("addError").classList.contains("show") === false && rowsOf(w).length === 3, "keeping its own name is not a duplicate of itself");
+});
+
+await section("Readable values and chart axes", async () => {
+  const { w, d } = await loadPage();
+  clickPreset(d, "BJT fixed-bias");
+  const vals = [...d.querySelectorAll("#componentBody td:nth-child(4)")].map(td => td.textContent);
+  check(vals.join("|") === "5 V|100 kΩ|10 V|1 kΩ|IS 100 aA".replace("100 aA", "1e-16 A"), "component values in engineering units: " + vals.join(" | "));
+  const cur = [...d.querySelectorAll("#resultsBody td")].map(td => td.textContent);
+  check(cur.includes("-41.887 µA"), "DC current shown as -41.887 µA");
+  clickPreset(d, "RC step");
+  const labels = [...d.querySelectorAll("#resultsBody svg text")].map(t => t.textContent);
+  check(labels.includes("time (ms)") && labels.includes("voltage (V)"), "axis titles carry the unit prefix: time (ms), voltage (V)");
+  check(labels.includes("1") && labels.includes("5") && !labels.some(t => /\d\.\d{3,}/.test(t)), "tick labels are round numbers");
+  clickPreset(d, "RC low-pass (AC)");
+  const acLabels = [...d.querySelectorAll("#resultsBody svg text")].map(t => t.textContent);
+  check(["10", "100", "1k", "10k", "100k", "1M"].every(t => acLabels.includes(t)) && acLabels.includes("−3 dB"), "AC axis: decade ticks 10 ... 1M and a labeled -3 dB line");
+  check(d.getElementById("rawData").value.startsWith("freq_hz,"), "raw data still available for download");
 });
 
 await section("Persistence: a saved waveform circuit survives a reload", async () => {
