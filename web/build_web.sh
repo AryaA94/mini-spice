@@ -142,6 +142,13 @@ const char* ms_run_ac(const char* netlist, double start, double stop, int ppd) {
 }  // extern "C"
 CPPEOF
 
+# SINGLE_FILE_BINARY_ENCODE=0: embed the .wasm as base64, not as raw bytes
+# in a JS string literal. Newer Emscripten releases default to raw bytes
+# (smaller), but the page's WASM then contains tens of thousands of NUL
+# bytes inside an inline <script>, and the HTML spec has parsers replace
+# NUL in script text with U+FFFD -- silently corrupting the engine
+# depending on how the page is served. Base64 is plain ASCII and is what
+# the original (older-Emscripten) build produced anyway.
 echo "== Compiling to WASM =="
 cd "$BUILD"
 em++ -std=c++20 -O2 -fexceptions \
@@ -153,6 +160,7 @@ em++ -std=c++20 -O2 -fexceptions \
   -s EXPORTED_RUNTIME_METHODS="['ccall','cwrap']" \
   -s ALLOW_MEMORY_GROWTH=1 \
   -s SINGLE_FILE=1 \
+  -s SINGLE_FILE_BINARY_ENCODE=0 \
   -s ENVIRONMENT=web \
   -s DISABLE_EXCEPTION_CATCHING=0 \
   --no-entry
