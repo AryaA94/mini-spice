@@ -64,6 +64,9 @@ h1{ margin:6px 0 4px; font-size:clamp(24px,4.5vw,32px); letter-spacing:-.01em; }
   border:1px solid var(--border); background:var(--surface-2); color:var(--ink); cursor:pointer;
 }
 .chip:hover{ border-color:var(--accent); color:var(--accent); }
+.chip-clear{ background:none; border-style:dashed; color:var(--ink-dim); }
+.chip-clear:hover{ border-color:var(--danger); color:var(--danger); }
+button:focus-visible, .chip:focus-visible, .tab:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
 
 table{ width:100%; border-collapse:collapse; font-size:13.5px; }
 th{ text-align:left; font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-dim); padding:6px 8px; border-bottom:1px solid var(--border); }
@@ -73,6 +76,10 @@ tr:last-child td{ border-bottom:none; }
 
 .row-del{ background:none; border:1px solid var(--border); color:var(--ink-dim); border-radius:6px; width:26px; height:26px; cursor:pointer; line-height:1; }
 .row-del:hover{ border-color:var(--danger); color:var(--danger); }
+.row-actions{ display:flex; gap:6px; justify-content:flex-end; }
+.row-edit{ background:none; border:1px solid var(--border); color:var(--ink-dim); border-radius:6px; width:26px; height:26px; cursor:pointer; line-height:1; }
+.row-edit:hover{ border-color:var(--accent); color:var(--accent); }
+tr.editing td{ background:var(--accent-soft); }
 
 .addform{ display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin-top:14px; padding-top:14px; border-top:1px dashed var(--border); }
 .field{ display:flex; flex-direction:column; gap:4px; }
@@ -82,7 +89,7 @@ input, select{
   background:var(--surface); color:var(--ink); width:100%;
 }
 input:focus, select:focus{ outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
-.w-sm{ width:78px; } .w-md{ width:100px; }
+.w-sm{ width:78px; } .w-md{ width:100px; } .w-lg{ width:190px; }
 .wf-params{ flex-basis:100%; display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); }
 .field label .unit{ text-transform:none; }
 .wf-hint{ flex-basis:100%; margin:0; color:var(--ink-dim); font-size:12px; line-height:1.5; }
@@ -121,6 +128,20 @@ input:focus, select:focus{ outline:2px solid var(--accent); outline-offset:1px; 
 .stat .label{ font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-dim); }
 .stat .value{ font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; font-size:16px; color:var(--accent); margin-top:2px; }
 
+.chart-wrap{ position:relative; margin-top:6px; }
+.chart-wrap svg{ touch-action:pan-y; cursor:crosshair; }
+.chart-tip{ position:absolute; top:8px; pointer-events:none; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:var(--shadow); padding:7px 9px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; line-height:1.55; white-space:nowrap; z-index:2; }
+.chart-tip[hidden]{ display:none; }
+.chart-tip .tip-x{ color:var(--ink-dim); margin-bottom:2px; }
+.chart-tip b{ font-weight:600; font-variant-numeric:tabular-nums; }
+.hover-x{ stroke:var(--ink-dim); stroke-width:1; stroke-dasharray:3,3; }
+.grid-minor{ stroke:var(--border); stroke-width:.6; opacity:.55; }
+.chart-hint{ margin:6px 0 0; color:var(--ink-dim); font-size:12px; }
+.results.stale #resultsBody{ opacity:.4; }
+.stale-note{ display:none; margin:0 0 8px; font-size:12.5px; color:var(--ink-dim); }
+.results.stale .stale-note{ display:block; }
+.result-actions{ display:flex; gap:14px; align-items:center; margin-top:10px; }
+.result-actions .raw-toggle{ margin-top:0; }
 .raw-toggle{ font-size:12px; color:var(--ink-dim); background:none; border:none; text-decoration:underline; cursor:pointer; padding:0; margin-top:10px; }
 textarea.raw{ display:none; width:100%; height:140px; margin-top:8px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--ink); }
 textarea.raw.show{ display:block; }
@@ -174,14 +195,14 @@ footer code{ font-family:"IBM Plex Mono",monospace; background:var(--surface-2);
 
     <div class="addform">
       <div class="field" id="f-type-wrap"><label>Type</label>
-        <select id="f-type" class="w-sm">
+        <select id="f-type" class="w-lg">
           <option value="R">R — resistor</option>
           <option value="C">C — capacitor</option>
           <option value="L">L — inductor</option>
           <option value="V">V — voltage src</option>
           <option value="I">I — current src</option>
           <option value="D">D — diode</option>
-          <option value="Q">Q — NPN transistor</option>
+          <option value="Q">Q — BJT (NPN/PNP)</option>
           <option value="E">E — VCVS (volt-ctrl volt src)</option>
           <option value="G">G — VCCS (volt-ctrl cur src)</option>
         </select>
@@ -220,6 +241,7 @@ footer code{ font-family:"IBM Plex Mono",monospace; background:var(--surface-2);
         <p class="wf-hint" id="f-wf-hint"></p>
       </div>
       <button class="btn" id="addBtn">+ Add</button>
+      <button class="btn secondary" id="cancelEditBtn" hidden>Cancel</button>
     </div>
     <div class="error-banner" id="addError"></div>
   </div>
@@ -253,13 +275,18 @@ footer code{ font-family:"IBM Plex Mono",monospace; background:var(--surface-2);
 
   <div class="card results hidden" id="resultsCard">
     <h2>3 &middot; Results</h2>
+    <p class="stale-note" id="staleNote">The circuit changed since this run &mdash; press <b>Run simulation</b> to update.</p>
     <div id="resultsBody"></div>
-    <button class="raw-toggle" id="rawToggle">show raw data</button>
+    <div class="result-actions">
+      <button class="raw-toggle" id="rawToggle">show raw data</button>
+      <button class="raw-toggle" id="downloadCsv">download CSV</button>
+    </div>
     <textarea class="raw" id="rawData" readonly></textarea>
   </div>
 
   <footer>
     <div>Compiles the real C++ engine from the repo (src/component.cpp, netlist.cpp, dc_solver.cpp, transient_solver.cpp, ac_solver.cpp) to WebAssembly and runs it directly in your browser &mdash; not a rewrite, the same compiled Gaussian-elimination MNA solver the CLI uses. Your circuit is saved in this browser only; nothing is sent anywhere.</div>
+    <div style="margin-top:6px">Source code, tests, and how every result is validated: <a href="https://github.com/AryaA94/mini-spice" style="color:var(--accent)">github.com/AryaA94/mini-spice</a></div>
   </footer>
 </div>
 

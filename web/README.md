@@ -19,6 +19,12 @@ hand-written UI on top).
   onto the netlist syntax).
 - `tests/ui_test.mjs` -- end-to-end test of the built page (see below).
 
+What a user can do in the page: load a preset (it picks its analysis and
+runs), add/edit/remove components, run DC / transient / AC, hover a graph
+for exact values, and download results as CSV. Names and node names are
+restricted to letters, digits and `_`, because they go straight into
+netlist text, where a space or `*`/`#` would change what the parser reads.
+
 To rebuild after any change to `../src`, `../include`, or the two files
 above: `./build_web.sh` (needs Emscripten's `em++` on `PATH` -- see the
 comment at the top of that script for how to get it if you don't have it).

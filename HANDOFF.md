@@ -56,7 +56,7 @@ invent a lighter-weight approach because it's faster.
   AddressSanitizer + UndefinedBehaviorSanitizer. ~92% line coverage
   (`gcov`/`gcovr`).
 - Full docs: `README.md`, `docs/ARCHITECTURE.md`,
-  `docs/DESIGN_DECISIONS.md` (19 numbered decisions, read this one in
+  `docs/DESIGN_DECISIONS.md` (20 numbered decisions, read this one in
   full), `docs/SUPPORTED_COMPONENTS.md`, `docs/ngspice_comparison.md`.
 - `tools/compare_to_spice.py` -- cross-validates against a real installed
   `ngspice` on essentially every feature. Extend this file, don't write a
