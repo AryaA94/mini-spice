@@ -52,11 +52,11 @@ invent a lighter-weight approach because it's faster.
   `t`, not just a step size `dt` -- see Decision 17 in
   `docs/DESIGN_DECISIONS.md` for why, and read it before touching that
   interface again.
-- 108 test cases, ~156,000 assertions, all passing. Clean under
+- 112 test cases, ~156,000 assertions, all passing. Clean under
   AddressSanitizer + UndefinedBehaviorSanitizer. ~92% line coverage
   (`gcov`/`gcovr`).
 - Full docs: `README.md`, `docs/ARCHITECTURE.md`,
-  `docs/DESIGN_DECISIONS.md` (18 numbered decisions, read this one in
+  `docs/DESIGN_DECISIONS.md` (19 numbered decisions, read this one in
   full), `docs/SUPPORTED_COMPONENTS.md`, `docs/ngspice_comparison.md`.
 - `tools/compare_to_spice.py` -- cross-validates against a real installed
   `ngspice` on essentially every feature. Extend this file, don't write a
@@ -155,6 +155,12 @@ the comment as much as the code.
   (the `has_nonlinear()` mechanism already generalizes to any new
   component that returns `true` from `is_nonlinear()`) rather than
   silently producing an unvalidated number.
+- Don't treat a component as validated on a hand-derived stamp test
+  alone, however simple it is. The independent current source had only
+  that, and ran backwards for the project's whole history until a
+  whole-circuit check compared it with ngspice (Decision 19). Every
+  component needs at least one whole circuit checked against an outside
+  reference (ngspice, a closed form).
 - Don't claim something works in the README/`SUPPORTED_COMPONENTS.md`
   before it's actually tested. This repo's credibility rests entirely on
   every checkmark being true.
@@ -168,25 +174,14 @@ the comment as much as the code.
 
 ## Immediate next steps, in priority order
 
-1. **Independent current source direction (open question, found while
-   testing the web UI).** `I1 0 n DC 2m` into a 1k resistor gives
-   `V(n) = -2V` here but `+2V` in ngspice. `CurrentSource` injects its
-   value *into* `node_p`; SPICE's convention is that current flows from
-   n+ *through the source* to n-, i.e. into the circuit at n-. `G` (VCCS)
-   was checked against ngspice and does follow SPICE's direction, so `I`
-   is also inconsistent with `G`. No `I`-source case exists in
-   `tools/compare_to_spice.py`, which is how this went unnoticed. Decide
-   the fix with Arya before changing it (it flips the meaning of every
-   existing `I` netlist); if fixing, add an ngspice case first and watch
-   it fail.
-2. **PWL waveform** (piecewise-linear breakpoint table) as a natural
+1. **PWL waveform** (piecewise-linear breakpoint table) as a natural
    follow-up to PULSE/SIN, same validation standard.
-3. **MOSFET**, if there's appetite for it -- treat this as its own
+2. **MOSFET**, if there's appetite for it -- treat this as its own
    from-scratch validation project at the same rigor as the BJT, not a
    quick add. Read Decision 13 first as the template for how to structure
    that work (derive the model, get the Jacobian right, validate with 2+
    independent methods, cross-check ngspice).
-4. Anything else in the README's "Limitations and roadmap" section, which
+3. Anything else in the README's "Limitations and roadmap" section, which
    is kept current and is the authoritative list -- check there for
    what's still open rather than trusting this document's snapshot if
    time has passed.

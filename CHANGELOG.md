@@ -3,9 +3,24 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - PULSE/SIN in the web tool
+## [Unreleased] - PULSE/SIN in the web tool; current source direction fix
+
+### Changed (breaking)
+- **Independent current sources (`I`) now follow SPICE's direction**:
+  `I1 p n <value>` flows from `p` through the source to `n`, so
+  `I1 0 out 2m` into 1k gives `V(out) = +2V`. It was previously reversed
+  (`-2V`), in DC, AC and transient alike. Existing netlists that relied on
+  the old direction need their two `I`-source nodes swapped. No examples,
+  golden files or web presets were affected. See
+  `docs/DESIGN_DECISIONS.md` #19, including why this went uncaught.
 
 ### Added
+- Five ngspice cross-checks for current sources in
+  `tools/compare_to_spice.py` (DC alone, DC aiding a voltage source, AC
+  phase, PULSE transient), each confirmed to fail on the old engine
+  before the fix. Also four new unit tests (circuit-level V=IR, hand KCL,
+  consistency with the ngspice-validated `G` device, and the AC stamp),
+  likewise confirmed to fail first.
 - Web tool: `V`/`I` sources get a Waveform selector (None / PULSE / SIN)
   that reveals the waveform's parameter fields (7 for PULSE, 5 for SIN) in
   netlist order. The DC value becomes optional when a waveform is

@@ -134,21 +134,23 @@ def run_minispice_tran(circuit_path, dt, stop, node):
     return [float(r["time"]) for r in rows], [float(r[f"V({node})"]) for r in rows]
 
 
-def run_ngspice_ac(circuit_text, start, stop, ppd, node):
+def run_ngspice_ac(circuit_text, start, stop, ppd, node, with_phase=False):
     deck = f"AC cross-check\n{circuit_text}\n.control\nac dec {ppd} {start} {stop}\nwrdata /tmp/_ns_ac_out.csv db(v({node})) cph(v({node}))\n.endc\n.end\n"
     with tempfile.NamedTemporaryFile("w", suffix=".cir", delete=False) as f:
         f.write(deck)
         path = f.name
     subprocess.run(["ngspice", "-b", path], check=True, capture_output=True, text=True)
     pathlib.Path(path).unlink()
-    freqs, mags = [], []
+    # wrdata writes "freq db freq cph" per row; cph is in radians.
+    freqs, mags, phases = [], [], []
     with open("/tmp/_ns_ac_out.csv") as f:
         for line in f:
             parts = line.split()
-            if len(parts) >= 2:
+            if len(parts) >= 4:
                 freqs.append(float(parts[0]))
                 mags.append(float(parts[1]))
-    return freqs, mags
+                phases.append(math.degrees(float(parts[3])))
+    return (freqs, mags, phases) if with_phase else (freqs, mags)
 
 
 def pct_error(sim, ref):
@@ -237,6 +239,24 @@ def main():
     ns_vccs = run_ngspice_dc(vccs_text, ["out"])
     rows.append(("VCCS transconductance V(out)", "V(out)", ms_vccs["out"], ns_vccs["out"], pct_error(ms_vccs["out"], ns_vccs["out"])))
 
+    # --- Independent current source direction (DESIGN_DECISIONS.md #19) --
+    # A sign error here flips V(n) but keeps its magnitude, so these are
+    # built to make the direction visible: a lone source into a resistor
+    # (V(n) = +/-2V), and one fighting a voltage source (3V if right, 2V
+    # if backwards -- not just a sign flip, so it can't pass by symmetry).
+    isrc_cases = [
+        ("I source into resistor V(n)", "I1 0 n DC 2m\nR1 n 0 1k\n"),
+        ("I source + V source V(n)", "V1 in 0 DC 5\nR1 in n 1k\nI1 0 n DC 1m\nR2 n 0 1k\n"),
+    ]
+    for name, text in isrc_cases:
+        with tempfile.NamedTemporaryFile("w", suffix=".cir", delete=False) as f:
+            f.write(text)
+            isrc_path = pathlib.Path(f.name)
+        ms_i = run_minispice_dc(isrc_path)
+        isrc_path.unlink()
+        ns_i = run_ngspice_dc(text, ["n"])
+        rows.append((name, "V(n)", ms_i["n"], ns_i["n"], pct_error(ms_i["n"], ns_i["n"])))
+
     # --- Transient cases (checkpoint at several times each) -----------
     tran_cases = [
         ("RC step V(out)", "03_rc_step", 1e-5, 5e-3, "out", [0.5e-3, 1e-3, 2e-3, 3e-3, 5e-3]),
@@ -273,6 +293,38 @@ def main():
         ms_val = interp(ms_freqs, ms_mags, target_hz)
         ns_val = interp(ns_freqs, ns_mags, target_hz)
         rows.append((f"RC low-pass @ {target_hz:.1f} Hz", "|V(out)| dB", ms_val, ns_val, pct_error(ms_val, ns_val)))
+
+    # AC excitation from a current source: a direction error is a 180 degree
+    # phase error with an identical magnitude, so compare phase, not dB.
+    iac_text = "I1 0 out DC 0 AC 1m\nR1 out 0 1k\nC1 out 0 100n\n"
+    with tempfile.NamedTemporaryFile("w", suffix=".cir", delete=False) as f:
+        f.write(iac_text)
+        iac_path = pathlib.Path(f.name)
+    subprocess.run([str(BIN), "ac", str(iac_path), "--start", "10", "--stop", "1e6", "--ppd", "20", "--csv", "/tmp/_ms_ac.csv"],
+                   check=True, capture_output=True)
+    iac_path.unlink()
+    ms_rows = list(csv.DictReader(open("/tmp/_ms_ac.csv")))
+    ms_freqs = [float(r["freq_hz"]) for r in ms_rows]
+    ms_phases = [float(r["V(out)_phase_deg"]) for r in ms_rows]
+    ns_freqs, _, ns_phases = run_ngspice_ac(iac_text, 10, 1e6, 20, "out", with_phase=True)
+    for target_hz in [100, 1591.5, 10000]:
+        ms_val = interp(ms_freqs, ms_phases, target_hz)
+        ns_val = interp(ns_freqs, ns_phases, target_hz)
+        rows.append((f"I source AC @ {target_hz:.1f} Hz", "phase V(out) deg", ms_val, ns_val, pct_error(ms_val, ns_val)))
+
+    # Transient: a PULSE on an I source (Decision 17's waveform path, driven
+    # through the current source's stamp rather than the voltage source's).
+    ipulse_text = "I1 0 out PULSE(0 5m 1m 0.1m 0.1m 2m 4m)\nR1 out 0 1k\nC1 out 0 1u\n"
+    with tempfile.NamedTemporaryFile("w", suffix=".cir", delete=False) as f:
+        f.write(ipulse_text)
+        ipulse_path = pathlib.Path(f.name)
+    ms_t, ms_v = run_minispice_tran(ipulse_path, 2e-5, 10e-3, "out")
+    ipulse_path.unlink()
+    ns_t, ns_v = run_ngspice_tran(ipulse_text, 2e-5, 10e-3, "out")
+    for tc in [2e-3, 3e-3, 4e-3, 6e-3, 10e-3]:
+        ms_val = interp(ms_t, ms_v, tc)
+        ns_val = interp(ns_t, ns_v, tc)
+        rows.append((f"I source PULSE into RC @ t={tc*1e3:.2f}ms", "V(out)", ms_val, ns_val, pct_error(ms_val, ns_val)))
 
     # --- Print markdown table ------------------------------------------
     print("| Case | Quantity | mini-spice | ngspice | % error |")

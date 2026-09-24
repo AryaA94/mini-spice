@@ -693,3 +693,95 @@ first version of the test actually *missed* the form-reset one: it checked
 the reset after two more form submissions, and those set every field
 themselves, so it was observing its own harness. That check now runs
 immediately after the waveform row is added.
+
+## 19. The independent current source was backwards (a real bug, and why nothing caught it)
+
+**What was wrong.** For a netlist line `I1 p n <value>`, SPICE's
+convention is that the current flows from `p` *through the source* to `n`.
+So the source pulls current out of node `p` and pushes it into node `n`.
+`I1 0 out 2m` feeding a 1k resistor to ground puts `out` at **+2V**.
+mini-spice's `CurrentSource` did the opposite and gave **-2V**. It called
+`inject_current(b, node_p, node_n, i)`, and that helper (Decision 2)
+defines `i` as entering the circuit at its *first* node argument. So the
+current came out at `p` instead of `n`. The magnitudes were always right;
+only the direction was reversed.
+
+**Working it out properly.** Following the same row-by-row KCL
+derivation as every other stamp (row equation: "current leaving the node
+through components = `b(node)`"):
+
+- **Row p**: the source carries `i` away from `p` into itself. That's a
+  known current leaving `p`, and moving it to the right-hand side gives
+  `b(p) -= i`.
+- **Row n**: the source delivers `i` into `n`, so `b(n) += i`.
+
+`inject_current(b, x, y, i)` adds to `x` and subtracts from `y`, so the
+correct call is `inject_current(b, node_n, node_p, i)`, with `n` first. The
+fix is exactly that swap, in both `stamp_time_domain()` and `stamp_ac()`.
+The helper itself was never wrong. The bug was calling it with the
+netlist's node order where the helper's own parameter names (`p` = where
+current enters the circuit) mean something different. `component.hpp`'s
+comment on `inject_current()` now says so explicitly.
+
+**Why nothing caught it, which is the more useful lesson.** Every other
+component was checked at least two independent ways. This one was
+checked only one way, and that one way was circular:
+
+- The hand-derived stamp test in `test_components.cpp` asserted
+  `b[p] = +i`, `b[n] = -i`. It was a check that the code did what the
+  code did, written from the same misreading of the convention as the
+  implementation. A hand-derived test is only independent if the
+  derivation starts from the physical definition (here, SPICE's
+  direction), not from the helper the code happens to call.
+- No example circuit, golden file, or `compare_to_spice.py` case
+  contained an `I` source at all. The `V` sources, capacitor and inductor
+  companion models all use the same `inject_current()` helper and *were*
+  checked against ngspice, which made the helper look validated. But the
+  helper was fine. The mistake was in what one caller passed to it, and
+  no end-to-end check ever touched that caller.
+- The first check that ever put an `I` source into a solved circuit and
+  compared the answer with something outside this code was the web tool's
+  end-to-end test (Decision 18). There, a SIN current source's DC point
+  came out as `-2V` where SPICE's convention says `+2V`.
+
+The takeaway for future components: **an ngspice cross-check (or other
+external reference) on a whole circuit is not optional for any
+component**, including "trivial" linear ones. The linear devices were
+the ones most likely to be waved through on a stamp test alone.
+
+**Validation of the fix**, done in the usual order: failing check first,
+then the fix.
+
+1. **ngspice, watched failing first.** Five new `compare_to_spice.py`
+   cases were run against the *old* engine before the fix, and all failed
+   the way a reversed source predicts: `-2` vs `2`; `2V` vs `3V` for a
+   current source aiding a voltage source (a different magnitude, not a
+   sign flip, so it can't pass by symmetry); AC phase off by exactly
+   180.000 degrees at every frequency (magnitude identical, which is why
+   the phase column is what's compared); and a PULSE transient that was
+   the exact negative of ngspice's. After the fix, DC and AC match to
+   float precision, and the transient is within the usual
+   backward-Euler-vs-trapezoidal tolerance.
+2. **Circuit-level tests with no ngspice involved** (`test_dc.cpp`),
+   also confirmed to fail on the old engine first: V = IR for the lone
+   source, a hand-worked KCL for the source-plus-voltage-source circuit
+   (3V), and a consistency check against the `G` device. `I1 0 n 2m`
+   must give the same `V(n)` as `G1 0 n ctl 0 2m` with `V(ctl) = 1V`.
+   SPICE uses the same direction for both, and `G`'s direction was
+   validated against ngspice in Decision 15 through code `CurrentSource`
+   doesn't share.
+3. **A Norton/Thevenin cross-check that came for free.** The new PULSE
+   current-source row (5mA in parallel with 1k and 1uF) is the Norton
+   equivalent of example 12's PULSE voltage source (5V behind 1k, same
+   capacitor). Its output matches example 12's row digit for digit, so
+   the fixed current source now behaves exactly like an
+   already-validated voltage source.
+4. **The stamp test was rewritten from the physical definition**, with
+   an AC counterpart added, and its comment records that it used to pin
+   the wrong signs.
+
+**Compatibility.** This changes the meaning of every existing netlist
+with an `I` source: each one's contribution flips sign. None of the
+repo's examples, golden files or web presets contained one, so none of
+them changed. Any netlist written against the old behavior needs its
+two `I`-source nodes swapped to keep the same result.

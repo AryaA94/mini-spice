@@ -35,7 +35,7 @@ cmake --build build/default
 ctest --test-dir build/default
 ```
 
-That configures, builds the library/CLI/test suite, and runs all 108 test
+That configures, builds the library/CLI/test suite, and runs all 112 test
 cases. Then try it on a circuit:
 
 ```sh
@@ -133,7 +133,7 @@ Full netlist syntax reference: [`docs/SUPPORTED_COMPONENTS.md`](docs/SUPPORTED_C
 ctest --test-dir build/default --output-on-failure
 ```
 
-108 test cases / 155,000+ assertions, covering:
+112 test cases / 155,000+ assertions, covering:
 
 - **Unit tests** -- hand-computed linear systems for the Gaussian
   elimination solver (including a case requiring partial pivoting, and one

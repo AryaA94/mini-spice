@@ -89,3 +89,50 @@ TEST_CASE("DC operating point treats an inductor as an approximate short", "[dc]
     auto solution = solve_dc(circuit);
     REQUIRE_THAT(node_voltage(circuit, solution, "out"), WithinAbs(0.0, 1e-6));
 }
+
+// Independent current source direction (DESIGN_DECISIONS.md #19). Each of
+// these fails if the source is reversed, and they're built so a reversal
+// can't pass by symmetry.
+TEST_CASE("Current source 'I1 0 n' drives n positive (SPICE direction), by Ohm's law", "[dc][analytic][isource]") {
+    // 2mA flows from node 0 through I1 into n, then back to ground through
+    // R1: V(n) = +2mA * 1k = +2V.
+    auto circuit = Circuit::parse(
+        "I1 0 n DC 2m\n"
+        "R1 n 0 1k\n");
+    auto solution = solve_dc(circuit);
+    REQUIRE_THAT(node_voltage(circuit, solution, "n"), WithinRel(2.0, 1e-9));
+}
+
+TEST_CASE("Current source aiding a voltage source matches hand KCL", "[dc][analytic][isource]") {
+    // KCL at n: (5 - Vn)/1k + 1mA = Vn/1k  ->  Vn = (5 + 1)/2 = 3V.
+    // A reversed source gives (5 - 1)/2 = 2V instead: a different
+    // magnitude, not just a sign flip.
+    auto circuit = Circuit::parse(
+        "V1 in 0 DC 5\n"
+        "R1 in n 1k\n"
+        "I1 0 n DC 1m\n"
+        "R2 n 0 1k\n");
+    auto solution = solve_dc(circuit);
+    REQUIRE_THAT(node_voltage(circuit, solution, "n"), WithinRel(3.0, 1e-9));
+    // V1 delivers (5-3)/1k = 2mA, read as -2mA (Decision 2's convention).
+    REQUIRE_THAT(source_current(circuit, solution, "V1"), WithinRel(-0.002, 1e-9));
+}
+
+TEST_CASE("Current source matches a VCCS with the same node order and a fixed 1V control", "[dc][isource][vccs]") {
+    // The G device's direction was validated against ngspice separately
+    // (Decision 15) and doesn't share any code with CurrentSource. SPICE
+    // gives both the same convention for the same node order, so
+    // "I1 0 n 2m" and "G1 0 n ctl 0 2m" with V(ctl) = 1V must give the
+    // same V(n). An independent check that doesn't go through ngspice.
+    auto with_i = Circuit::parse(
+        "I1 0 n DC 2m\n"
+        "R1 n 0 1k\n");
+    auto with_g = Circuit::parse(
+        "Vctl ctl 0 DC 1\n"
+        "G1 0 n ctl 0 2m\n"
+        "R1 n 0 1k\n");
+    double v_i = node_voltage(with_i, solve_dc(with_i), "n");
+    double v_g = node_voltage(with_g, solve_dc(with_g), "n");
+    REQUIRE_THAT(v_i, WithinRel(v_g, 1e-12));
+    REQUIRE_THAT(v_g, WithinRel(2.0, 1e-9));
+}

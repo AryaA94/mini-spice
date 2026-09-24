@@ -303,10 +303,10 @@ await section("Form: SIN on a current source, with delay and damping (closed-for
   check(!err, "I source with SIN accepted");
   check(netlistOf(w).split("\n")[0] === "I1 0 n DC 0.002 SIN(0 0.001 1000 0.0002 500)", "netlist: " + netlistOf(w).split("\n")[0]);
   const dc = dcWeb(run(d, "dc"));
-  // Sign of V(n) per amp of source current, from the explicit DC point
-  // (2mA -> +/-2V); the transient must follow the same convention.
+  // "I1 0 n": SPICE's convention delivers the current into n, so V(n) is
+  // +R*i (DESIGN_DECISIONS.md #19). k = V(n) per amp of source current.
   const k = dc.n / 2e-3;
-  check(Math.abs(Math.abs(k) - 1000) < 1e-6, `DC point: |V(n)| = 1k * 2mA (k = ${k})`);
+  check(Math.abs(k - 1000) < 1e-6, `DC point: V(n) = +1k * 2mA (SPICE current direction; k = ${k})`);
   const tbl = parseCsv(run(d, "tran", { "tran-dt": "1e-5", "tran-stop": "5e-3" }));
   const iN = tbl.header.indexOf("V(n)");
   let worst = 0;

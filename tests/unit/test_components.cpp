@@ -158,11 +158,27 @@ TEST_CASE("VoltageSource to ground only touches its one live node", "[components
 }
 
 TEST_CASE("CurrentSource injects its value directly into the RHS with no matrix contribution", "[components][isource]") {
+    // "I1 p=0 n=1 3mA": SPICE's convention is that 3mA flows from p through
+    // the source to n, so the source draws 3mA out of node 0 and delivers
+    // it into node 1. KCL row convention (b = current injected into the
+    // node): b[0] = -3mA, b[1] = +3mA. See DESIGN_DECISIONS.md #19 -- this
+    // test originally asserted the opposite signs, pinning a reversed
+    // source that nothing else caught.
     CurrentSource i("I1", 0, 1, 0.003);
     Matrix<double> A(2, 2);
     std::vector<double> b(2, 0.0);
     i.stamp_time_domain(A, b, 0.0, 0.0);
     REQUIRE_THAT(A(0, 0), WithinAbs(0.0, 1e-15));  // no matrix contribution at all
-    REQUIRE_THAT(b[0], WithinAbs(0.003, 1e-12));
-    REQUIRE_THAT(b[1], WithinAbs(-0.003, 1e-12));
+    REQUIRE_THAT(b[0], WithinAbs(-0.003, 1e-12));
+    REQUIRE_THAT(b[1], WithinAbs(0.003, 1e-12));
+}
+
+TEST_CASE("CurrentSource AC stamp uses the same direction as its DC stamp", "[components][isource][ac]") {
+    CurrentSource i("I1", 0, 1, 0.0, 0.002, 0.0);
+    Matrix<std::complex<double>> A(2, 2);
+    std::vector<std::complex<double>> b(2, {0.0, 0.0});
+    i.stamp_ac(A, b, 1000.0);
+    REQUIRE_THAT(b[0].real(), WithinAbs(-0.002, 1e-12));
+    REQUIRE_THAT(b[1].real(), WithinAbs(0.002, 1e-12));
+    REQUIRE_THAT(b[0].imag(), WithinAbs(0.0, 1e-15));
 }

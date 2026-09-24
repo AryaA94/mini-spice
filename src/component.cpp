@@ -165,14 +165,28 @@ void VoltageSource::stamp_ac(Matrix<std::complex<double>>& A, std::vector<std::c
 // transient step) directly into the RHS: no extra unknown needed, since an
 // ideal current source's defining equation is already in terms of known
 // quantities.
+//
+// Direction (SPICE's convention, checked against ngspice -- see
+// DESIGN_DECISIONS.md #19): for "I1 p n <value>", a positive value flows
+// from p *through the source* to n. So the source draws `value` out of
+// node p and delivers it into node n. Working through the KCL rows
+// ("current leaving the node through components = b(node)"):
+//   row p: the source carries `value` away from p, so moving that known
+//          term to the RHS gives b(p) -= value;
+//   row n: the source delivers `value` into n, so b(n) += value.
+// inject_current(b, x, y, i) adds i to x and subtracts it from y, so
+// that's inject_current(b, node_n, node_p, value) -- n first. (The first
+// version passed node_p first, which reversed every I source; the unit
+// test pinned the stamp it had, and nothing compared a circuit against
+// ngspice, so it went unnoticed.)
 void CurrentSource::stamp_time_domain(Matrix<double>& A, std::vector<double>& b, double t, double dt) const {
     (void)A;
     double i = (has_waveform && dt > 0.0) ? waveform.value_at(t) : dc_value;
-    inject_current(b, node_p, node_n, i);
+    inject_current(b, node_n, node_p, i);
 }
 void CurrentSource::stamp_ac(Matrix<std::complex<double>>& A, std::vector<std::complex<double>>& b, double /*omega*/) const {
     (void)A;
-    inject_current(b, node_p, node_n, phasor(ac_magnitude, ac_phase_deg));
+    inject_current(b, node_n, node_p, phasor(ac_magnitude, ac_phase_deg));
 }
 
 // ------------------------------------------------------------------ Diode

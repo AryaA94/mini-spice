@@ -42,6 +42,9 @@ void stamp_conductance(Matrix<Scalar>& A, int p, int n, Scalar g) {
 // (i.e. i is a current *entering* the circuit at p and leaving at n). This
 // single sign convention is used by every source of injected current:
 // independent current sources and the Norton companion sources of C and L.
+// Note these parameter names are the helper's own, not a netlist's: an
+// independent source "I1 p n" delivers its current into its *n* terminal
+// (SPICE's convention), so CurrentSource calls this with node_n first.
 template <typename Scalar>
 void inject_current(std::vector<Scalar>& b, int p, int n, Scalar i) {
     if (p >= 0) b[static_cast<std::size_t>(p)] += i;
@@ -204,6 +207,10 @@ public:
     Waveform waveform;
 };
 
+// An independent current source, "I<name> p n <value>". SPICE's
+// convention: a positive value flows from p through the source to n, i.e.
+// out of the source's n terminal into the external circuit. So a 2mA
+// source "I1 0 n" into a resistor to ground raises n to +2mA*R.
 class CurrentSource final : public Component {
 public:
     CurrentSource(std::string name, int p, int n, double dc, double ac_mag = 0.0, double ac_phase_deg = 0.0)
