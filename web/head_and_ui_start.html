@@ -1,287 +1,355 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>mini-spice — interactive circuit simulator</title>
-<style>
-:root{
-  color-scheme: light;
-  box-sizing:border-box;
-  padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-html{ scroll-padding-top: env(safe-area-inset-top, 0px); }
-*{ box-sizing: border-box; }
-
-:root{
-  --bg:#f4f5f3; --surface:#ffffff; --surface-2:#eceeea; --ink:#171a17; --ink-dim:#5c655d;
-  --border:#d9dcd5; --accent:#1f5eff; --accent-ink:#ffffff; --accent-soft:#e6ecff;
-  --danger:#c22; --danger-soft:#fde8e8;
-  --trace1:#1f77b4; --trace2:#d62728; --trace3:#2ca02c; --trace4:#d97706; --trace5:#7c3aed; --trace6:#0891b2;
-  --shadow: 0 1px 2px rgba(20,30,24,.06), 0 8px 24px rgba(20,30,24,.06);
-  --radius: 12px;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#0f1210; --surface:#171b18; --surface-2:#1d221e; --ink:#e9ece7; --ink-dim:#98a294;
-    --border:#2b322c; --accent:#5b8dff; --accent-ink:#08130e; --accent-soft:#16213a;
-    --danger:#ff6b6b; --danger-soft:#2a1414;
-    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 28px rgba(0,0,0,.4);
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#0f1210; --surface:#171b18; --surface-2:#1d221e; --ink:#e9ece7; --ink-dim:#98a294;
-  --border:#2b322c; --accent:#5b8dff; --accent-ink:#08130e; --accent-soft:#16213a;
-  --danger:#ff6b6b; --danger-soft:#2a1414;
-  --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 28px rgba(0,0,0,.4);
-}
-
-body{
-  margin:0; background:var(--bg); color:var(--ink);
-  font-family:"Inter", system-ui, -apple-system, sans-serif;
-  padding: clamp(18px,4vw,40px) 16px;
-}
-.mono{ font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, monospace; }
-.page{ max-width: 920px; margin: 0 auto; display:flex; flex-direction:column; gap:22px; }
-
-.eyebrow{
-  font-family:"IBM Plex Mono", monospace; font-size:12px; letter-spacing:.1em; text-transform:uppercase;
-  color:var(--accent); display:flex; align-items:center; gap:8px;
-}
-.eyebrow::before{ content:""; width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
-h1{ margin:6px 0 4px; font-size:clamp(24px,4.5vw,32px); letter-spacing:-.01em; }
-.dek{ margin:0; color:var(--ink-dim); font-size:14.5px; line-height:1.6; max-width:64ch; }
-.dek code{ font-family:"IBM Plex Mono",monospace; background:var(--surface-2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:.92em; }
-
-.card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:18px 20px; }
-.card h2{ margin:0 0 4px; font-size:15px; }
-.card .sub{ margin:0 0 14px; color:var(--ink-dim); font-size:13px; }
-
-.presets{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
-.chip{
-  font-family:"IBM Plex Mono",monospace; font-size:12.5px; padding:6px 12px; border-radius:999px;
-  border:1px solid var(--border); background:var(--surface-2); color:var(--ink); cursor:pointer;
-}
-.chip:hover{ border-color:var(--accent); color:var(--accent); }
-.chip-clear{ background:none; border-style:dashed; color:var(--ink-dim); }
-.chip-clear:hover{ border-color:var(--danger); color:var(--danger); }
-button:focus-visible, .chip:focus-visible, .tab:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
-
-table{ width:100%; border-collapse:collapse; font-size:13.5px; }
-th{ text-align:left; font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-dim); padding:6px 8px; border-bottom:1px solid var(--border); }
-td{ padding:7px 8px; border-bottom:1px solid var(--border); vertical-align:middle; }
-tr:last-child td{ border-bottom:none; }
-.empty-row td{ color:var(--ink-dim); font-style:italic; text-align:center; padding:18px; }
-
-.row-del{ background:none; border:1px solid var(--border); color:var(--ink-dim); border-radius:6px; width:26px; height:26px; cursor:pointer; line-height:1; }
-.row-del:hover{ border-color:var(--danger); color:var(--danger); }
-.row-actions{ display:flex; gap:6px; justify-content:flex-end; }
-.row-edit{ background:none; border:1px solid var(--border); color:var(--ink-dim); border-radius:6px; width:26px; height:26px; cursor:pointer; line-height:1; }
-.row-edit:hover{ border-color:var(--accent); color:var(--accent); }
-tr.editing td{ background:var(--accent-soft); }
-
-.addform{ display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin-top:14px; padding-top:14px; border-top:1px dashed var(--border); }
-.field{ display:flex; flex-direction:column; gap:4px; }
-.field label{ font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-dim); }
-input, select{
-  font: inherit; font-size:13.5px; padding:7px 9px; border-radius:7px; border:1px solid var(--border);
-  background:var(--surface); color:var(--ink); width:100%;
-}
-input:focus, select:focus{ outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
-.w-sm{ width:78px; } .w-md{ width:100px; } .w-lg{ width:190px; }
-.wf-params{ flex-basis:100%; display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); }
-.field label .unit{ text-transform:none; }
-.wf-hint{ flex-basis:100%; margin:0; color:var(--ink-dim); font-size:12px; line-height:1.5; }
-.btn{
-  font-family:"IBM Plex Mono",monospace; font-size:13px; font-weight:600; padding:8px 16px; border-radius:8px;
-  border:1px solid var(--accent); background:var(--accent); color:var(--accent-ink); cursor:pointer;
-}
-.btn:hover{ filter:brightness(1.08); }
-.btn.secondary{ background:var(--surface); color:var(--ink); border-color:var(--border); font-weight:500; }
-.btn.secondary:hover{ border-color:var(--accent); color:var(--accent); }
-.btn:disabled{ opacity:.5; cursor:not-allowed; }
-
-.tabs{ display:flex; gap:6px; margin-bottom:14px; }
-.tab{
-  font-family:"IBM Plex Mono",monospace; font-size:12.5px; padding:7px 14px; border-radius:8px;
-  border:1px solid var(--border); background:var(--surface-2); color:var(--ink-dim); cursor:pointer;
-}
-.tab.active{ background:var(--accent-soft); border-color:var(--accent); color:var(--accent); font-weight:600; }
-.params{ display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:14px; }
-.run-row{ display:flex; align-items:center; gap:12px; }
-
-.error-banner{
-  display:none; background:var(--danger-soft); border:1px solid var(--danger); color:var(--danger);
-  border-radius:8px; padding:10px 12px; font-size:13px; margin-top:12px;
-}
-.error-banner.show{ display:block; }
-
-.results{ margin-top:6px; }
-.results.hidden{ display:none; }
-.legend{ display:flex; flex-wrap:wrap; gap:12px; margin:10px 0 4px; font-family:"IBM Plex Mono",monospace; font-size:12px; }
-.legend span{ display:inline-flex; align-items:center; gap:6px; }
-.swatch{ width:12px; height:2.5px; border-radius:1px; display:inline-block; }
-
-.stat-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-top:12px; }
-.stat{ background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
-.stat .label{ font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-dim); }
-.stat .value{ font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; font-size:16px; color:var(--accent); margin-top:2px; }
-
-.chart-wrap{ position:relative; margin-top:6px; }
-.chart-wrap svg{ touch-action:pan-y; cursor:crosshair; }
-.chart-tip{ position:absolute; top:8px; pointer-events:none; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:var(--shadow); padding:7px 9px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; line-height:1.55; white-space:nowrap; z-index:2; }
-.chart-tip[hidden]{ display:none; }
-.chart-tip .tip-x{ color:var(--ink-dim); margin-bottom:2px; }
-.chart-tip b{ font-weight:600; font-variant-numeric:tabular-nums; }
-.hover-x{ stroke:var(--ink-dim); stroke-width:1; stroke-dasharray:3,3; }
-.grid-minor{ stroke:var(--border); stroke-width:.6; opacity:.55; }
-.chart-hint{ margin:6px 0 0; color:var(--ink-dim); font-size:12px; }
-.results.stale #resultsBody{ opacity:.4; }
-.stale-note{ display:none; margin:0 0 8px; font-size:12.5px; color:var(--ink-dim); }
-.results.stale .stale-note{ display:block; }
-.result-actions{ display:flex; gap:14px; align-items:center; margin-top:10px; }
-.result-actions .raw-toggle{ margin-top:0; }
-.raw-toggle{ font-size:12px; color:var(--ink-dim); background:none; border:none; text-decoration:underline; cursor:pointer; padding:0; margin-top:10px; }
-textarea.raw{ display:none; width:100%; height:140px; margin-top:8px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--ink); }
-textarea.raw.show{ display:block; }
-
-svg.chart{ width:100%; height:auto; display:block; background:var(--surface); border-radius:8px; }
-.axis-label{ font-family:"IBM Plex Mono",monospace; font-size:10px; fill:var(--ink-dim); }
-.grid-line{ stroke:var(--border); stroke-width:1; }
-.chart-title{ font-family:"IBM Plex Mono",monospace; font-size:11px; fill:var(--ink-dim); }
-
-
-@media (max-width:520px){
-  .addform{ flex-direction:column; align-items:stretch; }
-  .w-sm, .w-md{ width:100%; }
-  table, thead, tbody, th, td, tr{ display:block; }
-  thead{ display:none; }
-  tr{ border-bottom:1px solid var(--border); padding:8px 0; }
-  td{ border-bottom:none; padding:3px 4px; display:flex; justify-content:space-between; gap:8px; }
-  td::before{ content: attr(data-label); font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:var(--ink-dim); text-transform:uppercase; }
-}
-</style>
+<title>mini-spice</title>
+<meta name="description" content="Circuit simulator in the browser: DC, transient and AC analysis, running a C++ engine compiled to WebAssembly.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  color-scheme: dark;
+  --bg:#060d0a;
+  --panel:#0b1511;
+  --panel-2:#0f1c17;
+  --line:#18271f;
+  --line-2:#223529;
+  --text:#e4efe9;
+  --muted:#8ba398;
+  --faint:#5a7066;
+  --accent:#3ddc97;
+  --accent-ink:#03140b;
+  --accent-soft:rgba(61,220,151,.10);
+  --danger:#ff6b6b;
+  --danger-soft:rgba(255,107,107,.08);
+  --mono:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans:"Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* the charts read these */
+  --ink-dim:var(--faint);
+  --border:var(--line);
+  --surface:var(--panel);
+}
+*{ box-sizing:border-box; }
+html,body{ margin:0; }
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--sans);
+  font-size:14px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  /* faint engineering grid, fading out down the page */
+  background-image:
+    linear-gradient(to bottom, transparent 0, var(--bg) 720px),
+    linear-gradient(rgba(61,220,151,.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(61,220,151,.045) 1px, transparent 1px);
+  background-size:100% 100%, 48px 48px, 48px 48px;
+  background-repeat:no-repeat, repeat, repeat;
+  min-height:100vh;
+}
+a{ color:inherit; }
+button{ font:inherit; }
+
+.wrap{ max-width:1180px; margin:0 auto; padding:0 24px; }
+
+/* top bar */
+.nav{ border-bottom:1px solid var(--line); background:rgba(6,13,10,.7); backdrop-filter:blur(8px); position:sticky; top:0; z-index:10; }
+.nav .wrap{ display:flex; align-items:center; justify-content:space-between; height:56px; }
+.brand{ display:flex; align-items:center; gap:10px; font-weight:600; font-size:15px; letter-spacing:-.01em; text-decoration:none; }
+.brand svg{ display:block; }
+.nav-link{ color:var(--muted); text-decoration:none; font-size:13px; padding:6px 10px; border:1px solid var(--line-2); border-radius:6px; }
+.nav-link:hover{ color:var(--text); border-color:var(--faint); }
+
+/* intro */
+.hero{ padding:56px 0 36px; }
+.hero h1{ margin:0; font-size:clamp(30px,5vw,48px); line-height:1.05; letter-spacing:-.03em; font-weight:600; }
+.hero h1 em{ font-style:normal; color:var(--accent); }
+.hero p{ margin:14px 0 0; color:var(--muted); font-size:15px; max-width:52ch; }
+
+/* examples */
+.section-label{ font-family:var(--mono); font-size:11px; color:var(--faint); text-transform:uppercase; letter-spacing:.12em; margin:0 0 10px; }
+.presets{ display:grid; grid-template-columns:repeat(auto-fill,minmax(172px,1fr)); gap:8px; margin-bottom:28px; }
+.chip{
+  position:relative; display:flex; align-items:flex-start; text-align:left; cursor:pointer;
+  background:var(--panel); color:var(--text);
+  border:1px solid var(--line); border-radius:8px;
+  padding:26px 12px 11px; font-size:13px; font-weight:500;
+  transition:border-color .15s, background .15s;
+}
+.chip::after{
+  content:attr(data-tag); position:absolute; top:9px; left:12px;
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; color:var(--faint);
+}
+.chip:hover{ border-color:var(--accent); background:var(--panel-2); }
+.chip:hover::after{ color:var(--accent); }
+
+/* workspace */
+.workspace{ display:grid; grid-template-columns:minmax(330px,390px) minmax(0,1fr); gap:16px; align-items:start; padding-bottom:64px; }
+.main-col{ display:flex; flex-direction:column; gap:16px; min-width:0; }
+.panel{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+.panel-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; min-height:30px; }
+.panel-head h2{ margin:0; font-size:14px; font-weight:600; letter-spacing:-.005em; }
+.ghost{ background:none; border:1px solid transparent; color:var(--faint); font-size:12px; padding:4px 8px; border-radius:6px; cursor:pointer; }
+.ghost:hover{ color:var(--text); border-color:var(--line-2); }
+
+/* component list (a table, laid out as rows of cards) */
+table{ width:100%; border-collapse:collapse; }
+thead{ display:none; }
+#componentBody{ display:flex; flex-direction:column; gap:6px; }
+#componentBody tr{
+  display:grid; align-items:center;
+  grid-template-columns:30px minmax(0,1fr) auto auto;
+  grid-template-areas:"type name value act" "type nodes extra act";
+  column-gap:10px; padding:8px 8px 8px 8px;
+  background:var(--panel-2); border:1px solid var(--line); border-radius:8px;
+}
+#componentBody td{ padding:0; min-width:0; }
+#componentBody td:nth-child(1){ grid-area:name; font-weight:600; font-size:13px; }
+#componentBody td:nth-child(2){
+  grid-area:type; width:30px; height:30px; border-radius:6px; display:grid; place-items:center;
+  background:var(--accent-soft); color:var(--accent); font-family:var(--mono); font-size:12px; font-weight:500;
+}
+#componentBody td:nth-child(3){ grid-area:nodes; font-family:var(--mono); font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#componentBody td:nth-child(4){ grid-area:value; font-family:var(--mono); font-size:12px; text-align:right; }
+#componentBody td:nth-child(5){ grid-area:extra; font-family:var(--mono); font-size:10.5px; color:var(--faint); text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
+#componentBody td:nth-child(6){ grid-area:act; }
+#componentBody tr.editing{ border-color:var(--accent); }
+#componentBody tr.empty-row{ display:block; background:none; border:1px dashed var(--line-2); padding:22px 12px; }
+#componentBody tr.empty-row td{ color:var(--faint); text-align:center; font-size:13px; }
+.row-actions{ display:flex; gap:2px; }
+.row-edit, .row-del{ background:none; border:none; color:var(--faint); width:26px; height:26px; border-radius:6px; cursor:pointer; font-size:13px; }
+.row-edit:hover{ color:var(--accent); background:var(--accent-soft); }
+.row-del:hover{ color:var(--danger); background:var(--danger-soft); }
+
+/* add form */
+.addform{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+#f-type-wrap, #f-wf-wrap{ grid-column:1/-1; }
+.field{ display:flex; flex-direction:column; gap:5px; min-width:0; }
+.field label{ font-size:11.5px; color:var(--muted); }
+.field label .unit{ color:var(--faint); }
+input, select{
+  width:100%; font:inherit; font-size:13px; color:var(--text);
+  background:var(--bg); border:1px solid var(--line-2); border-radius:6px; padding:8px 10px;
+}
+input::placeholder{ color:var(--faint); }
+input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+select{ appearance:none; cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+  background-position:calc(100% - 15px) 55%, calc(100% - 10px) 55%; background-size:5px 5px; background-repeat:no-repeat; padding-right:28px; }
+.check{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text); padding:8px 0; cursor:pointer; }
+.check input{ width:auto; accent-color:var(--accent); }
+.wf-params{ grid-column:1/-1; display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:12px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px; }
+.wf-hint{ grid-column:1/-1; margin:0; font-size:11.5px; color:var(--faint); }
+#addBtn, #cancelEditBtn{ grid-column:1/-1; }
+
+/* buttons */
+.btn{
+  font-weight:600; font-size:13px; padding:9px 16px; border-radius:6px; cursor:pointer;
+  background:var(--accent); color:var(--accent-ink); border:1px solid var(--accent);
+  transition:filter .15s;
+}
+.btn:hover{ filter:brightness(1.1); }
+.btn:disabled{ opacity:.45; cursor:default; filter:none; }
+.btn.secondary{ background:none; color:var(--muted); border-color:var(--line-2); }
+.btn.secondary:hover{ color:var(--text); }
+button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+/* analysis */
+.tabs{ display:flex; background:var(--bg); border:1px solid var(--line-2); border-radius:7px; padding:2px; }
+.tab{ background:none; border:none; color:var(--muted); font-size:12.5px; padding:5px 12px; border-radius:5px; cursor:pointer; }
+.tab:hover{ color:var(--text); }
+.tab.active{ background:var(--panel-2); color:var(--accent); box-shadow:inset 0 0 0 1px var(--line-2); }
+.run-row{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; }
+.params{ display:flex; gap:10px; }
+.params .field{ width:112px; }
+.run-row .btn{ margin-left:auto; min-width:132px; }
+.summary{ font-family:var(--mono); font-size:11.5px; color:var(--faint); align-self:center; }
+
+.error-banner{ display:none; margin-top:12px; padding:10px 12px; border-radius:6px; font-size:13px; color:var(--danger); background:var(--danger-soft); border:1px solid rgba(255,107,107,.3); }
+.error-banner.show{ display:block; }
+
+/* results */
+.results.hidden{ display:none; }
+.results-empty{ display:none; place-items:center; min-height:320px; border:1px dashed var(--line-2); border-radius:10px; color:var(--faint); font-size:13px; text-align:center; padding:24px; }
+.results.hidden + .results-empty{ display:grid; }
+.results.stale #resultsBody{ opacity:.35; }
+.stale-note{ display:none; margin:0; font-size:12px; color:var(--accent); }
+.results.stale .stale-note{ display:block; }
+.legend{ display:flex; flex-wrap:wrap; gap:14px; margin:2px 0 6px; font-family:var(--mono); font-size:11.5px; color:var(--muted); }
+.legend span{ display:inline-flex; align-items:center; gap:6px; }
+.swatch{ width:10px; height:2px; display:inline-block; border-radius:1px; }
+.chart-wrap{ position:relative; margin-top:4px; }
+svg.chart{ width:100%; height:auto; display:block; touch-action:pan-y; cursor:crosshair; }
+.axis-label{ font-family:var(--mono); font-size:10px; fill:var(--faint); }
+.grid-line{ stroke:var(--line); stroke-width:1; }
+.grid-minor{ stroke:var(--line); stroke-width:.6; opacity:.6; }
+.hover-x{ stroke:var(--muted); stroke-width:1; stroke-dasharray:2,3; }
+.chart-tip{ position:absolute; top:10px; pointer-events:none; background:rgba(11,21,17,.95); border:1px solid var(--line-2); border-radius:6px; padding:7px 10px; font-family:var(--mono); font-size:11px; line-height:1.6; white-space:nowrap; z-index:2; }
+.chart-tip[hidden]{ display:none; }
+.chart-tip .tip-x{ color:var(--faint); }
+.chart-tip b{ font-weight:500; color:var(--text); }
+.chart-hint{ display:none; }
+.stat-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; margin-top:14px; }
+.stat{ background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+.stat .label{ font-size:11px; color:var(--faint); }
+.stat .value{ font-family:var(--mono); font-size:15px; margin-top:2px; }
+#resultsBody table{ font-size:13px; }
+#resultsBody td{ padding:8px 4px; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:12.5px; }
+#resultsBody td:last-child{ text-align:right; }
+#resultsBody tr:last-child td{ border-bottom:none; }
+#resultsBody table + table{ margin-top:14px; }
+.result-actions{ display:flex; gap:4px; }
+.raw-toggle{ background:none; border:1px solid transparent; color:var(--faint); font-size:12px; padding:4px 8px; border-radius:6px; cursor:pointer; }
+.raw-toggle:hover{ color:var(--text); border-color:var(--line-2); }
+textarea.raw{ display:none; width:100%; height:150px; margin-top:12px; font-family:var(--mono); font-size:11px; padding:10px; border-radius:6px; border:1px solid var(--line-2); background:var(--bg); color:var(--muted); resize:vertical; }
+textarea.raw.show{ display:block; }
+
+@media (max-width:900px){
+  .workspace{ grid-template-columns:1fr; }
+  .hero{ padding:36px 0 24px; }
+}
+@media (max-width:520px){
+  .wrap{ padding:0 16px; }
+  .presets{ grid-template-columns:1fr 1fr; }
+  .params{ flex:1 1 100%; }
+  .params .field{ flex:1; width:auto; }
+  .run-row .btn{ width:100%; margin-left:0; }
+  #componentBody td:nth-child(5){ max-width:110px; }
+}
+</style>
 </head>
 <body>
-<div class="page">
 
-  <div>
-    <div class="eyebrow">mini-spice &middot; interactive</div>
-    <h1>Build a circuit, run it, see the graph</h1>
-    <p class="dek">
-      Add components below (or load a preset), pick DC / Transient / AC, and hit Run.
-      The simulator is written in C++ and compiled to WebAssembly, so it runs right here
-      in the page. Nothing to install.
-    </p>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="./">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+        <rect x=".5" y=".5" width="21" height="21" rx="5" stroke="#3ddc97" stroke-opacity=".5"/>
+        <path d="M3 11h3l1.5-4 3 8 3-8 3 8 1.5-4h2" stroke="#3ddc97" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>
+      mini-spice
+    </a>
+    <a class="nav-link" href="https://github.com/AryaA94/mini-spice">GitHub &#8599;</a>
   </div>
+</header>
 
-  <div class="card">
-    <h2>1 &middot; Circuit</h2>
-    <p class="sub">Load a preset to start fast, or add rows yourself. Node "0" (or "gnd") is always ground.</p>
-    <div class="presets" id="presets"></div>
+<main class="wrap page">
 
-    <table>
-      <thead>
-        <tr><th>Name</th><th>Type</th><th>Nodes</th><th>Value</th><th>Extra</th><th></th></tr>
-      </thead>
-      <tbody id="componentBody"></tbody>
-    </table>
+  <section class="hero">
+    <h1>Simulate circuits<br><em>in the browser.</em></h1>
+    <p>DC, transient and AC analysis, running a C++ engine compiled to WebAssembly.</p>
+  </section>
 
-    <div class="addform">
-      <div class="field" id="f-type-wrap"><label>Type</label>
-        <select id="f-type" class="w-lg">
-          <option value="R">R — resistor</option>
-          <option value="C">C — capacitor</option>
-          <option value="L">L — inductor</option>
-          <option value="V">V — voltage src</option>
-          <option value="I">I — current src</option>
-          <option value="D">D — diode</option>
-          <option value="Q">Q — BJT (NPN/PNP)</option>
-          <option value="E">E — VCVS (volt-ctrl volt src)</option>
-          <option value="G">G — VCCS (volt-ctrl cur src)</option>
-        </select>
+  <p class="section-label">Examples</p>
+  <div class="presets" id="presets"></div>
+
+  <div class="workspace">
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Circuit</h2>
+        <button class="ghost" id="clearBtn">Clear</button>
       </div>
-      <div class="field"><label id="f-name-label">Name</label><input id="f-name" class="w-sm" placeholder="R1"></div>
-      <div class="field"><label id="f-nodeA-label">Node A</label><input id="f-nodeA" class="w-sm" placeholder="in"></div>
-      <div class="field"><label id="f-nodeB-label">Node B</label><input id="f-nodeB" class="w-sm" placeholder="out"></div>
-      <div class="field" id="f-nodeC-wrap" style="display:none"><label id="f-nodeC-label">Node C</label><input id="f-nodeC" class="w-sm" placeholder="0"></div>
-      <div class="field" id="f-nodeD-wrap" style="display:none"><label id="f-nodeD-label">Node D</label><input id="f-nodeD" class="w-sm" placeholder="0"></div>
-      <div class="field" id="f-pnp-wrap" style="display:none"><label>&nbsp;</label>
-        <label style="display:flex;align-items:center;gap:5px;font-family:inherit;font-size:13px;font-weight:400;text-transform:none;letter-spacing:normal;color:var(--ink);padding:7px 0;">
-          <input type="checkbox" id="f-pnp" style="width:auto;margin:0;"> PNP
-        </label>
+
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Nodes</th><th>Value</th><th>Extra</th><th></th></tr></thead>
+        <tbody id="componentBody"></tbody>
+      </table>
+
+      <div class="addform">
+        <div class="field" id="f-type-wrap"><label for="f-type">Component</label>
+          <select id="f-type">
+            <option value="R">Resistor (R)</option>
+            <option value="C">Capacitor (C)</option>
+            <option value="L">Inductor (L)</option>
+            <option value="V">Voltage source (V)</option>
+            <option value="I">Current source (I)</option>
+            <option value="D">Diode (D)</option>
+            <option value="Q">BJT (Q)</option>
+            <option value="E">VCVS (E)</option>
+            <option value="G">VCCS (G)</option>
+          </select>
+        </div>
+        <div class="field"><label id="f-name-label" for="f-name">Name</label><input id="f-name" placeholder="R1" autocomplete="off"></div>
+        <div class="field"><label id="f-value-label" for="f-value">Value</label><input id="f-value" placeholder="1k" autocomplete="off"></div>
+        <div class="field"><label id="f-nodeA-label" for="f-nodeA">Node A</label><input id="f-nodeA" placeholder="in" autocomplete="off"></div>
+        <div class="field"><label id="f-nodeB-label" for="f-nodeB">Node B</label><input id="f-nodeB" placeholder="0" autocomplete="off"></div>
+        <div class="field" id="f-nodeC-wrap" style="display:none"><label id="f-nodeC-label" for="f-nodeC">Node C</label><input id="f-nodeC" placeholder="0" autocomplete="off"></div>
+        <div class="field" id="f-nodeD-wrap" style="display:none"><label id="f-nodeD-label" for="f-nodeD">Node D</label><input id="f-nodeD" placeholder="0" autocomplete="off"></div>
+        <div class="field" id="f-extra1-wrap"><label id="f-extra1-label" for="f-extra1">IC</label><input id="f-extra1" placeholder="0" autocomplete="off"></div>
+        <div class="field" id="f-extra2-wrap"><label id="f-extra2-label" for="f-extra2">AC phase</label><input id="f-extra2" placeholder="0" autocomplete="off"></div>
+        <div class="field" id="f-pnp-wrap" style="display:none">
+          <label class="check"><input type="checkbox" id="f-pnp"> PNP</label>
+        </div>
+        <div class="field" id="f-wf-wrap" style="display:none"><label for="f-wf">Waveform</label>
+          <select id="f-wf">
+            <option value="">None (DC)</option>
+            <option value="PULSE">PULSE</option>
+            <option value="SIN">SIN</option>
+          </select>
+        </div>
+        <!-- 7 slots, relabeled for PULSE (all 7) or SIN (first 5) in ui_logic.js -->
+        <div class="wf-params" id="f-wf-params" style="display:none">
+          <div class="field" id="f-wf1-wrap"><label id="f-wf1-label" for="f-wf1">P1</label><input id="f-wf1" autocomplete="off"></div>
+          <div class="field" id="f-wf2-wrap"><label id="f-wf2-label" for="f-wf2">P2</label><input id="f-wf2" autocomplete="off"></div>
+          <div class="field" id="f-wf3-wrap"><label id="f-wf3-label" for="f-wf3">P3</label><input id="f-wf3" autocomplete="off"></div>
+          <div class="field" id="f-wf4-wrap"><label id="f-wf4-label" for="f-wf4">P4</label><input id="f-wf4" autocomplete="off"></div>
+          <div class="field" id="f-wf5-wrap"><label id="f-wf5-label" for="f-wf5">P5</label><input id="f-wf5" autocomplete="off"></div>
+          <div class="field" id="f-wf6-wrap"><label id="f-wf6-label" for="f-wf6">P6</label><input id="f-wf6" autocomplete="off"></div>
+          <div class="field" id="f-wf7-wrap"><label id="f-wf7-label" for="f-wf7">P7</label><input id="f-wf7" autocomplete="off"></div>
+          <p class="wf-hint" id="f-wf-hint"></p>
+        </div>
+        <button class="btn" id="addBtn">+ Add</button>
+        <button class="btn secondary" id="cancelEditBtn" hidden>Cancel</button>
       </div>
-      <div class="field"><label id="f-value-label">Value</label><input id="f-value" class="w-md" placeholder="1k"></div>
-      <div class="field" id="f-extra1-wrap"><label id="f-extra1-label">IC</label><input id="f-extra1" class="w-sm" placeholder="0"></div>
-      <div class="field" id="f-extra2-wrap"><label id="f-extra2-label">AC phase</label><input id="f-extra2" class="w-sm" placeholder="0"></div>
-      <div class="field" id="f-wf-wrap" style="display:none"><label>Waveform</label>
-        <select id="f-wf" class="w-md">
-          <option value="">None (DC)</option>
-          <option value="PULSE">PULSE</option>
-          <option value="SIN">SIN</option>
-        </select>
-      </div>
-      <!-- Transient waveform parameters. Seven generic slots, relabeled by
-           updateAddFormFields() from WAVEFORM_PARAMS (ui_logic.js): PULSE
-           uses all 7, SIN the first 5. -->
-      <div class="wf-params" id="f-wf-params" style="display:none">
-        <div class="field" id="f-wf1-wrap"><label id="f-wf1-label">P1</label><input id="f-wf1" class="w-sm"></div>
-        <div class="field" id="f-wf2-wrap"><label id="f-wf2-label">P2</label><input id="f-wf2" class="w-sm"></div>
-        <div class="field" id="f-wf3-wrap"><label id="f-wf3-label">P3</label><input id="f-wf3" class="w-sm"></div>
-        <div class="field" id="f-wf4-wrap"><label id="f-wf4-label">P4</label><input id="f-wf4" class="w-sm"></div>
-        <div class="field" id="f-wf5-wrap"><label id="f-wf5-label">P5</label><input id="f-wf5" class="w-sm"></div>
-        <div class="field" id="f-wf6-wrap"><label id="f-wf6-label">P6</label><input id="f-wf6" class="w-sm"></div>
-        <div class="field" id="f-wf7-wrap"><label id="f-wf7-label">P7</label><input id="f-wf7" class="w-sm"></div>
-        <p class="wf-hint" id="f-wf-hint"></p>
-      </div>
-      <button class="btn" id="addBtn">+ Add</button>
-      <button class="btn secondary" id="cancelEditBtn" hidden>Cancel</button>
+      <div class="error-banner" id="addError"></div>
+    </section>
+
+    <div class="main-col">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Analysis</h2>
+          <div class="tabs" id="tabs">
+            <button class="tab active" data-mode="dc">DC</button>
+            <button class="tab" data-mode="tran">Transient</button>
+            <button class="tab" data-mode="ac">AC</button>
+          </div>
+        </div>
+        <div class="run-row">
+          <div class="params" id="params-dc"></div>
+          <div class="params" id="params-tran" style="display:none">
+            <div class="field"><label for="tran-dt">Step (s)</label><input id="tran-dt" value="1e-5"></div>
+            <div class="field"><label for="tran-stop">Stop (s)</label><input id="tran-stop" value="5e-3"></div>
+          </div>
+          <div class="params" id="params-ac" style="display:none">
+            <div class="field"><label for="ac-start">Start (Hz)</label><input id="ac-start" value="10"></div>
+            <div class="field"><label for="ac-stop">Stop (Hz)</label><input id="ac-stop" value="1e6"></div>
+            <div class="field"><label for="ac-ppd">Pts / decade</label><input id="ac-ppd" value="20"></div>
+          </div>
+          <span class="summary" id="runSummary"></span>
+          <button class="btn" id="runBtn" disabled>Loading&hellip;</button>
+        </div>
+        <div class="error-banner" id="runError"></div>
+      </section>
+
+      <section class="panel results hidden" id="resultsCard">
+        <div class="panel-head">
+          <h2>Results</h2>
+          <div class="result-actions">
+            <button class="raw-toggle" id="rawToggle">show raw data</button>
+            <button class="raw-toggle" id="downloadCsv">CSV &#8595;</button>
+          </div>
+        </div>
+        <p class="stale-note" id="staleNote">Circuit changed. Run again to update.</p>
+        <div id="resultsBody"></div>
+        <textarea class="raw" id="rawData" readonly></textarea>
+      </section>
+      <div class="results-empty">Pick an example above, or build a circuit and hit Run.</div>
     </div>
-    <div class="error-banner" id="addError"></div>
+
   </div>
-
-  <div class="card">
-    <h2>2 &middot; Analysis</h2>
-    <p class="sub">DC solves one operating point. Transient steps through time (backward Euler). AC sweeps frequency.</p>
-    <div class="tabs" id="tabs">
-      <button class="tab active" data-mode="dc">DC</button>
-      <button class="tab" data-mode="tran">Transient</button>
-      <button class="tab" data-mode="ac">AC</button>
-    </div>
-
-    <div class="params" id="params-dc"></div>
-    <div class="params" id="params-tran" style="display:none">
-      <div class="field"><label>dt (s)</label><input id="tran-dt" class="w-md" value="1e-5"></div>
-      <div class="field"><label>stop (s)</label><input id="tran-stop" class="w-md" value="5e-3"></div>
-    </div>
-    <div class="params" id="params-ac" style="display:none">
-      <div class="field"><label>start (Hz)</label><input id="ac-start" class="w-md" value="10"></div>
-      <div class="field"><label>stop (Hz)</label><input id="ac-stop" class="w-md" value="1e6"></div>
-      <div class="field"><label>points/decade</label><input id="ac-ppd" class="w-sm" value="20"></div>
-    </div>
-
-    <div class="run-row">
-      <button class="btn" id="runBtn" disabled>Loading engine&hellip;</button>
-      <span class="sub" id="runSummary" style="margin:0"></span>
-    </div>
-    <div class="error-banner" id="runError"></div>
-  </div>
-
-  <div class="card results hidden" id="resultsCard">
-    <h2>3 &middot; Results</h2>
-    <p class="stale-note" id="staleNote">The circuit changed since this run &mdash; press <b>Run simulation</b> to update.</p>
-    <div id="resultsBody"></div>
-    <div class="result-actions">
-      <button class="raw-toggle" id="rawToggle">show raw data</button>
-      <button class="raw-toggle" id="downloadCsv">download CSV</button>
-    </div>
-    <textarea class="raw" id="rawData" readonly></textarea>
-  </div>
-
-</div>
+</main>
 
 <script>

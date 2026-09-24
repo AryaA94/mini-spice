@@ -1,5 +1,5 @@
 /* ====================== UI state ====================== */
-const TRACE_COLORS=["#1f77b4","#d62728","#2ca02c","#d97706","#7c3aed","#0891b2"];
+const TRACE_COLORS=["#3ddc97","#5cc8ff","#ffb547","#ff7aa2","#b18cff","#e6ec6a"];
 let rows=[];
 let mode="dc";
 
@@ -131,8 +131,8 @@ const WAVEFORM_PARAMS={
   ],
 };
 const WAVEFORM_HINT={
-  PULSE:"Blank timing fields are 0. TR/TF 0 = instant edge; PER 0 = repeat right after the fall (TR+PW+TF). Blank DC value = V1 for the DC operating point.",
-  SIN:"VO + VA·e^(−THETA·(t−TD))·sin(2π·FREQ·(t−TD)) for t ≥ TD, VO before. Blank TD/THETA are 0. Blank DC value = VO for the DC operating point.",
+  PULSE:"Blank fields are 0. PER 0 repeats right after the fall.",
+  SIN:"Blank TD and THETA are 0.",
 };
 function waveformUnit(p, type){ return p.unit==="v" ? (type==="I"?"A":"V") : p.unit; }
 // DC value when none was given (same as Waveform::rest_value())
@@ -288,6 +288,8 @@ function renderPresets(){
   Object.keys(PRESETS).forEach(name=>{
     const b=document.createElement("button");
     b.className="chip"; b.textContent=name;
+    const mode=(PRESET_ANALYSIS[name]||{}).mode;
+    if(mode) b.dataset.tag={dc:"DC",tran:"TRANSIENT",ac:"AC"}[mode];
     b.onclick=()=>{
       cancelEdit();
       // deep copy (waveform rows have a nested object)
@@ -309,10 +311,7 @@ function renderPresets(){
     };
     el.appendChild(b);
   });
-  const clearBtn=document.createElement("button");
-  clearBtn.className="chip chip-clear"; clearBtn.textContent="Clear all";
-  clearBtn.onclick=()=>{ cancelEdit(); rows=[]; renderTable(); save(); circuitChanged(); };
-  el.appendChild(clearBtn);
+  document.getElementById("clearBtn").onclick=()=>{ cancelEdit(); rows=[]; renderTable(); save(); circuitChanged(); };
 }
 
 // dim old results when the circuit changes
@@ -325,7 +324,7 @@ function renderTable(){
   const body=document.getElementById("componentBody");
   body.innerHTML="";
   if(rows.length===0){
-    body.innerHTML='<tr class="empty-row"><td colspan="6">No components yet — load a preset above or add one below.</td></tr>';
+    body.innerHTML='<tr class="empty-row"><td colspan="6">No components yet.</td></tr>';
     return;
   }
   rows.forEach((r,idx)=>{
@@ -613,9 +612,9 @@ function tickLabel(v, f, step){
 let chartSeq=0, CHARTS={};
 
 function makeChart({series, xLabel, xUnit="", yLabel, yUnit="", xLog=false, refLine=null, refLabel="", yPrefixed=true}){
-  const pageW=(document.querySelector(".page")||{}).clientWidth||0;
+  const colW=(document.querySelector(".main-col")||{}).clientWidth||0;
   // size to the screen so the text isn't tiny on phones
-  const W=Math.max(320, Math.min(900, pageW ? pageW-42 : 760));
+  const W=Math.max(300, Math.min(900, colW ? colW-34 : 760));
   const H=W<520 ? 250 : 300;
   const pad={l:62, r:18, t:14, b:42};
   const plotW=W-pad.l-pad.r, plotH=H-pad.t-pad.b;
@@ -736,7 +735,7 @@ MiniSpiceModule().then((Module)=>{
   msRunTran = Module.cwrap('ms_run_transient', 'string', ['string','number','number']);
   msRunAc = Module.cwrap('ms_run_ac', 'string', ['string','number','number','number']);
   const btn=document.getElementById("runBtn");
-  btn.disabled=false; btn.textContent="Run simulation";
+  btn.disabled=false; btn.textContent="Run";
   load();
   updateAddFormFields();
   renderPresets();
@@ -821,7 +820,6 @@ function renderDcResults(result){
     html+='<table style="margin-top:10px"><thead><tr><th>Source</th><th>Current</th></tr></thead><tbody>';
     result.currents.forEach(c=>{ html+=`<tr><td data-label="Source" class="mono">I(${e(c.name)})</td><td data-label="Current" class="mono">${e(fmtSI(c.value,"A",5))}</td></tr>`; });
     html+='</tbody></table>';
-    html+='<p class="chart-hint">A source delivering current reads negative (SPICE convention: current is measured flowing into the + terminal).</p>';
   }
   document.getElementById("resultsBody").innerHTML=html;
 
@@ -844,7 +842,6 @@ function renderTransientResults(table, rawText){
   });
   let html = legendHTML(series);
   html += makeChart({series, xLabel:"time", xUnit:"s", yLabel:"voltage", yUnit:"V"});
-  html += '<p class="chart-hint">Hover or drag across the graph to read exact values.</p>';
   html += '<div class="stat-grid">';
   series.forEach(s=>{
     const ys=s.points.map(p=>p.y);
@@ -874,7 +871,6 @@ function renderAcResults(table, rawText){
   let html = legendHTML(magSeries);
   html += makeChart({series:magSeries, xLabel:"frequency", xUnit:"Hz", yLabel:"magnitude", yUnit:"dB", xLog:true, refLine:-3.0103, refLabel:"−3 dB", yPrefixed:false});
   html += makeChart({series:phaseSeries, xLabel:"frequency", xUnit:"Hz", yLabel:"phase", yUnit:"°", xLog:true, yPrefixed:false});
-  html += '<p class="chart-hint">Hover or drag across either graph to read exact values. Magnitude is relative to the AC source amplitude.</p>';
   document.getElementById("resultsBody").innerHTML=html;
   setRaw(rawText);
 }
