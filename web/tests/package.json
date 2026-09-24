@@ -1,0 +1,8 @@
+{
+  "name": "mini-spice-web-tests",
+  "private": true,
+  "description": "End-to-end test of web/dist/mini-spice-web.html in jsdom. See ui_test.mjs.",
+  "type": "module",
+  "scripts": { "test": "node ui_test.mjs" },
+  "devDependencies": { "jsdom": "^26.1.0" }
+}

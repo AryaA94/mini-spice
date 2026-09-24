@@ -56,19 +56,16 @@ invent a lighter-weight approach because it's faster.
   AddressSanitizer + UndefinedBehaviorSanitizer. ~92% line coverage
   (`gcov`/`gcovr`).
 - Full docs: `README.md`, `docs/ARCHITECTURE.md`,
-  `docs/DESIGN_DECISIONS.md` (17 numbered decisions, read this one in
+  `docs/DESIGN_DECISIONS.md` (18 numbered decisions, read this one in
   full), `docs/SUPPORTED_COMPONENTS.md`, `docs/ngspice_comparison.md`.
 - `tools/compare_to_spice.py` -- cross-validates against a real installed
   `ngspice` on essentially every feature. Extend this file, don't write a
   parallel one, when adding new cross-validation cases.
-- The web tool (`web/dist/mini-spice-web.html`) -- works, but **does not
-  yet have PULSE/SIN in its UI** (see "Immediate next steps" below). It
-  does have R/C/L/V/I/D/Q(NPN+PNP)/E/G.
+- The web tool (`web/dist/mini-spice-web.html`) -- R/C/L/V/I/D/Q(NPN+PNP)/
+  E/G, plus PULSE/SIN waveforms on V/I (Decision 18). Tested end to end by
+  `web/tests/ui_test.mjs` (jsdom, real WASM; see `web/README.md`).
 
 ### Explicitly not done (named honestly in the README, not hidden)
-- **PULSE/SIN in the web UI** -- the C++ engine and CLI fully support it;
-  the browser tool's component-builder form doesn't have fields for it
-  yet. This is the most natural immediate next step.
 - **PWL** (piecewise-linear) source waveform -- `Waveform::value_at(t)`
   already has the right shape to add this as a third `Kind` (table
   lookup instead of a closed form); not started.
@@ -171,32 +168,17 @@ the comment as much as the code.
 
 ## Immediate next steps, in priority order
 
-1. **Add PULSE/SIN to the web UI.** The engine and WASM bindings already
-   support it (nothing in `web/build_web.sh` or the C++ side needs to
-   change). What's needed is UI work in `web/ui_logic.js` /
-   `web/head_and_ui_start.html`:
-   - A way to enter a waveform when adding a `V`/`I` component -- the
-     simplest approach that stays consistent with the existing form
-     (which already has dynamic per-type fields) is probably a "Waveform"
-     dropdown (None / PULSE / SIN) that reveals the relevant parameter
-     inputs (7 fields for PULSE, up to 5 for SIN) when selected, similar
-     to how the `Q` type already reveals a PNP checkbox and a third node
-     field conditionally. Look at `updateAddFormFields()` and
-     `addComponentFromForm()` in `web/ui_logic.js` for the existing
-     pattern to extend.
-   - `rowsToNetlist()` needs a case for building the `PULSE(...)`/
-     `SIN(...)` clause text for a row that has a waveform.
-   - Add a "PULSE source" and/or "SIN source" preset button, matching the
-     existing `PRESETS` object's style.
-   - Rebuild with `web/build_web.sh` and test end-to-end (there's a
-     pattern of writing a throwaway jsdom test script for this: simulate
-     the page with `jsdom` (`npm install -g jsdom`), click through the
-     preset/form, and check the results, before considering it done -- a
-     *published* untested UI change isn't good enough at this project's
-     standard).
-   - Update `docs/SUPPORTED_COMPONENTS.md`'s "web tool" framing if it
-     mentions the gap, and remove the "not yet in the web UI" caveat
-     anywhere it's written once this is done.
+1. **Independent current source direction (open question, found while
+   testing the web UI).** `I1 0 n DC 2m` into a 1k resistor gives
+   `V(n) = -2V` here but `+2V` in ngspice. `CurrentSource` injects its
+   value *into* `node_p`; SPICE's convention is that current flows from
+   n+ *through the source* to n-, i.e. into the circuit at n-. `G` (VCCS)
+   was checked against ngspice and does follow SPICE's direction, so `I`
+   is also inconsistent with `G`. No `I`-source case exists in
+   `tools/compare_to_spice.py`, which is how this went unnoticed. Decide
+   the fix with Arya before changing it (it flips the meaning of every
+   existing `I` netlist); if fixing, add an ngspice case first and watch
+   it fail.
 2. **PWL waveform** (piecewise-linear breakpoint table) as a natural
    follow-up to PULSE/SIN, same validation standard.
 3. **MOSFET**, if there's appetite for it -- treat this as its own
@@ -228,8 +210,9 @@ exact `gcovr` invocation, or just replicate the pattern -- configure a
 ngspice cross-validation: `python3 tools/compare_to_spice.py` (needs
 `ngspice` installed -- `apt install ngspice` on Debian/Ubuntu).
 
-Web tool: `cd web && ./build_web.sh` (needs `emcc` -- see that script's
-header comment). **On a normal cloud dev environment with full internet
+Web tool: `cd web && ./build_web.sh` (needs `em++` -- see that script's
+header comment), then `cd web/tests && npm install && node ui_test.mjs`
+to test the result end to end. **On a normal cloud dev environment with full internet
 access, the standard `emsdk install latest && emsdk activate latest` flow
 should just work** -- the sandbox this was originally built in had network
 access restricted to a short allowlist of domains that broke emsdk's own

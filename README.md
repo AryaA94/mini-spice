@@ -35,7 +35,7 @@ cmake --build build/default
 ctest --test-dir build/default
 ```
 
-That configures, builds the library/CLI/test suite, and runs all 60 test
+That configures, builds the library/CLI/test suite, and runs all 108 test
 cases. Then try it on a circuit:
 
 ```sh

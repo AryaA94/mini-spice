@@ -3,6 +3,34 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - PULSE/SIN in the web tool
+
+### Added
+- Web tool: `V`/`I` sources get a Waveform selector (None / PULSE / SIN)
+  that reveals the waveform's parameter fields (7 for PULSE, 5 for SIN) in
+  netlist order. The DC value becomes optional when a waveform is
+  attached, falling back to the waveform's rest value exactly as a
+  hand-written netlist does. Two new presets, "PULSE into RC filter" and
+  "SIN into RC filter", reproduce `examples/12_pulse_rc_filter` and
+  `examples/13_sine_source` and switch straight to the Transient tab with
+  matching dt/stop. See `docs/DESIGN_DECISIONS.md` #18.
+- `web/tests/ui_test.mjs`: an end-to-end test of the built page in jsdom
+  (64 checks). It checks the generated netlist text literally, the WASM
+  results against the native CLI, and waveform-source outputs against the
+  PULSE/SIN definitions evaluated in the test. Every one of 8 deliberate
+  UI breakages ("mutations") was confirmed to fail it.
+- `tools/compare_to_spice.py` now cross-checks the PULSE and SIN examples
+  against ngspice. Decision 17 described that comparison, but the script
+  had no cases for it, so it wasn't reproducible. Results and a
+  convergence check (10x smaller dt gives exactly 10x smaller error) are
+  in `docs/ngspice_comparison.md`.
+
+### Fixed
+- `web/build_web.sh` failed to link on current Emscripten releases
+  ("undefined C++ symbols"): it compiled C++ with `emcc`, which only
+  happened to link libc++ on the old Ubuntu 3.1.x package. Now uses
+  `em++`.
+
 ## [0.5.0] - Time-varying sources (PULSE, SIN)
 
 ### Added

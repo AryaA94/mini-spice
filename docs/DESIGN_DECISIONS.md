@@ -625,3 +625,71 @@ which the discrepancy dropped to the same ~1% adaptive-vs-fixed-step
 tolerance already documented for every other transient comparison in
 `docs/ngspice_comparison.md`).
 
+
+## 18. PULSE/SIN in the web tool: the form writes explicit netlist text, never its own defaults
+
+The web tool's job is to turn form fields into the same `.cir` text the
+CLI reads (`rowsToNetlist()` in `web/ui_logic.js`) and hand that to the
+real compiled engine. So adding PULSE/SIN to the browser was purely a
+question of *what text the form writes*. The only way to get it wrong is
+for the form to mean something different from what the engine does with
+that text. Every choice below comes from that.
+
+**Blank timing fields are written as explicit `0`s, not left out.** Real
+SPICE lets you leave off PULSE's trailing values and fills them in from
+the `.tran` card: TR/TF default to the time step, PW/PER to the stop
+time. This engine's parser deliberately requires all 7 PULSE values, so a
+source never means something that depends on the analysis settings. The
+form keeps that property: V1/V2 (PULSE) and VO/VA/FREQ (SIN) must be
+typed in, and anything else left blank goes into the netlist as a
+literal `0`, which the engine defines exactly. A 0 TR/TF is an instant
+edge (tested in `test_waveforms.cpp`), `PER 0` means "repeat right after
+the fall" (`TR+PW+TF`), and SIN's `TD 0`/`THETA 0` mean no delay and no
+damping. The form's hint text spells this out, because someone who knows
+real SPICE could otherwise expect the `.tran`-based defaults.
+
+**The DC value becomes optional, and when it's blank the `DC` clause is
+left out rather than filled in.** Leaving it out lets the engine apply
+its own `rest_value()` rule (PULSE's V1, SIN's VO; Decision 17). The form
+doesn't copy V1 into a `DC` clause itself, because that would be a second
+implementation of the same rule, and the two could drift apart. The
+component table shows the value the DC operating point will actually
+use: the explicit DC value if there is one, otherwise the rest value.
+
+**One check the engine doesn't make: a zero-width PULSE.** `TR = PW = TF
+= 0` is legal to the parser (`Waveform::value_at()` returns V1 forever),
+but from the form it almost always means PW was forgotten. The source
+would silently do nothing, which is exactly the kind of plausible-looking
+wrong result this project refuses elsewhere. So the form rejects it with
+a message saying what to set. Every other check (negative TR/TF/PW/PER,
+non-positive FREQ) mirrors a rejection the parser already makes. It's
+done at add time so the error sits next to the field, not after Run.
+
+**Validation.** The same three-way standard as the engine, via
+`web/tests/ui_test.mjs` running the built page (real WASM) in jsdom:
+
+1. The netlist each new preset generates is asserted *literally* against
+   `examples/12_pulse_rc_filter`/`13_sine_source`'s circuits, and so is a
+   PULSE source built field by field through the form. Those example
+   netlists are the ones cross-checked against ngspice and pinned by
+   golden tests, so matching them text-for-text inherits that validation.
+2. The WASM output is compared against the native CLI run on a
+   *hand-written* netlist: a different compiler, and a netlist that
+   didn't come from the UI.
+3. For a PULSE source (with explicit DC and AC clauses too) and a SIN
+   current source (with TD and THETA) on purely resistive circuits, every
+   transient step is compared against the PULSE/SIN definitions evaluated
+   in the test itself. Resistive-only means there's no integration error
+   in the way, so a swapped parameter can't hide in the tolerance. That
+   test-side evaluation is a test oracle, not a JS port of the engine:
+   nothing on the page uses it.
+
+To check that the test can actually fail, 8 deliberate breakages of the
+UI were each run against it: reversed parameter order, TR/TF swapped, SIN
+TD/THETA swapped, AC clause written before the waveform, the old
+always-`DC` line, the zero-width check removed, the preset's analysis
+settings ignored, and the form not resetting. Every one was caught. The
+first version of the test actually *missed* the form-reset one: it checked
+the reset after two more form submissions, and those set every field
+themselves, so it was observing its own harness. That check now runs
+immediately after the waveform row is added.
