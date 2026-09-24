@@ -12,6 +12,18 @@ endif()
 option(MINISPICE_ENABLE_SANITIZERS "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
 option(MINISPICE_BUILD_TESTS "Build the Catch2 test suite" ON)
 
+# Warning flags differ by compiler: GCC/Clang spell them -Wall -Wextra
+# -Wpedantic, MSVC rejects those outright (error D8021) and uses /W4
+# instead. Warnings only, not errors, on every compiler.
+if(MSVC)
+  set(MINISPICE_WARNINGS /W4)
+  # MSVC's <cmath> only defines M_PI (used by the CLI and tests) when
+  # this is set before it's included.
+  add_compile_definitions(_USE_MATH_DEFINES)
+else()
+  set(MINISPICE_WARNINGS -Wall -Wextra -Wpedantic)
+endif()
+
 add_library(minispice_core STATIC
   src/component.cpp
   src/netlist.cpp
@@ -21,7 +33,7 @@ add_library(minispice_core STATIC
   src/ac_solver.cpp
 )
 target_include_directories(minispice_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_compile_options(minispice_core PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(minispice_core PRIVATE ${MINISPICE_WARNINGS})
 
 if(MINISPICE_ENABLE_SANITIZERS)
   target_compile_options(minispice_core PUBLIC -fsanitize=address,undefined -fno-omit-frame-pointer -g)
@@ -30,7 +42,7 @@ endif()
 
 add_executable(minispice cli/main.cpp)
 target_link_libraries(minispice PRIVATE minispice_core)
-target_compile_options(minispice PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(minispice PRIVATE ${MINISPICE_WARNINGS})
 
 if(MINISPICE_BUILD_TESTS)
   enable_testing()
@@ -59,7 +71,7 @@ if(MINISPICE_BUILD_TESTS)
   )
   target_link_libraries(minispice_tests PRIVATE minispice_core Catch2::Catch2WithMain)
   target_include_directories(minispice_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-  target_compile_options(minispice_tests PRIVATE -Wall -Wextra)
+  target_compile_options(minispice_tests PRIVATE ${MINISPICE_WARNINGS})
   target_compile_definitions(minispice_tests PRIVATE
     MINISPICE_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/examples"
     MINISPICE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
