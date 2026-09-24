@@ -36,6 +36,8 @@ for a bug:
 | PNP fixed-bias V(col) | V(col) | -5.81128 | -5.81128 | 0.0000% |
 | VCVS amplifier V(out) | V(out) | 6 | 6 | 0.0000% |
 | VCCS transconductance V(out) | V(out) | -20 | -20 | 0.0000% |
+| I source into resistor V(n) | V(n) | 2 | 2 | 0.0000% |
+| I source + V source V(n) | V(n) | 3 | 3 | 0.0000% |
 | RC step V(out) @ t=0.50ms | V(out) | 1.95981 | 1.96735 | 0.3836% |
 | RC step V(out) @ t=1.00ms | V(out) | 3.15144 | 3.16061 | 0.2901% |
 | RC step V(out) @ t=2.00ms | V(out) | 4.31657 | 4.32333 | 0.1565% |
@@ -50,23 +52,95 @@ for a bug:
 | Overdamped RLC V(out) @ t=1.00ms | V(out) | 1.96276 | 1.96352 | 0.0388% |
 | Overdamped RLC V(out) @ t=2.00ms | V(out) | 3.15967 | 3.1606 | 0.0292% |
 | Overdamped RLC V(out) @ t=3.00ms | V(out) | 3.88491 | 3.88575 | 0.0216% |
+| PULSE RC filter V(out) @ t=2.00ms | V(out) | 3.06655 | 3.0654 | 0.0376% |
+| PULSE RC filter V(out) @ t=3.00ms | V(out) | 4.28167 | 4.28832 | 0.1552% |
+| PULSE RC filter V(out) @ t=4.00ms | V(out) | 1.8678 | 1.87623 | 0.4491% |
+| PULSE RC filter V(out) @ t=6.00ms | V(out) | 3.32437 | 3.31934 | 0.1516% |
+| PULSE RC filter V(out) @ t=10.00ms | V(out) | 3.32928 | 3.32407 | 0.1567% |
+| SIN source V(out) @ t=0.50ms | V(out) | 2.80132 | 2.81725 | 0.5655% |
+| SIN source V(out) @ t=1.00ms | V(out) | 1.56139 | 1.57197 | 0.6734% |
+| SIN source V(out) @ t=3.00ms | V(out) | 1.56143 | 1.57199 | 0.6716% |
+| SIN source V(out) @ t=4.50ms | V(out) | 2.80592 | 2.82009 | 0.5026% |
+| SIN source V(out) @ t=6.00ms | V(out) | 0.438566 | 0.427971 | 2.4759% |
 | RC low-pass @ 100.0 Hz | \|V(out)\| dB | -0.0171115 | -0.0171115 | 0.0000% |
 | RC low-pass @ 1000.0 Hz | \|V(out)\| dB | -1.44507 | -1.44507 | 0.0000% |
 | RC low-pass @ 1591.5 Hz | \|V(out)\| dB | -3.01013 | -3.01013 | 0.0000% |
 | RC low-pass @ 10000.0 Hz | \|V(out)\| dB | -16.0722 | -16.0722 | 0.0000% |
 | RC low-pass @ 100000.0 Hz | \|V(out)\| dB | -35.9647 | -35.9647 | 0.0000% |
+| I source AC @ 100.0 Hz | phase V(out) deg | -3.59527 | -3.59527 | 0.0000% |
+| I source AC @ 1591.5 Hz | phase V(out) deg | -44.9924 | -44.9924 | 0.0000% |
+| I source AC @ 10000.0 Hz | phase V(out) deg | -80.9569 | -80.9569 | 0.0000% |
+| I source PULSE into RC @ t=2.00ms | V(out) | 3.06655 | 3.0654 | 0.0376% |
+| I source PULSE into RC @ t=3.00ms | V(out) | 4.28167 | 4.28832 | 0.1552% |
+| I source PULSE into RC @ t=4.00ms | V(out) | 1.8678 | 1.87623 | 0.4491% |
+| I source PULSE into RC @ t=6.00ms | V(out) | 3.32437 | 3.31934 | 0.1516% |
+| I source PULSE into RC @ t=10.00ms | V(out) | 3.32928 | 3.32407 | 0.1567% |
 <!-- END GENERATED TABLE -->
 
-Max error across all 29 checkpoints: **1.5811%**, on an underdamped RLC
-transient checkpoint sampled near a zero-crossing of the ringing waveform
-(where a fixed percentage of a fast-changing signal is most sensitive to a
-small timing offset between two different adaptive/fixed step schemes).
+Max error across all 49 checkpoints: **2.4759%**, on the SIN-source
+checkpoint at t=6ms. That's not a larger *absolute* error than its
+neighbours -- every SIN row is off by about the same ~0.011V -- it's the
+same absolute error divided by a smaller value (V(out) is 0.44V there,
+versus 1.5-2.8V at the other checkpoints). The next-largest, 1.58%, is an
+underdamped RLC transient checkpoint sampled near a zero-crossing of the
+ringing waveform (where a fixed percentage of a fast-changing signal is
+most sensitive to a small timing offset between two different
+adaptive/fixed step schemes).
 Every DC and AC checkpoint matches to float precision or near it. The PNP
 rows are the *exact* negation of the NPN rows above them, as expected from
 the mirror-model construction (DESIGN_DECISIONS.md #14). The VCVS/VCCS
 rows use ngspice's native `E`/`G` syntax directly (no `.model` card
 needed, since these are ideal linear elements) and match to float
 precision, same as every other purely-linear component.
+
+## The current-source rows, and the bug they caught
+
+The five `I source` rows were added after testing the web tool turned up
+a reversed independent current source (DESIGN_DECISIONS.md #19): before
+the fix, `I source into resistor` read `-2` against ngspice's `2`, the
+mixed row read `2` against `3`, every AC phase was off by exactly 180
+degrees, and the PULSE transient was the exact negative of ngspice's. Each
+row is built so a direction error can't hide:
+
+- **A lone source into a resistor**: the plainest possible check, V = IR.
+- **A current source aiding a voltage source**: a reversed source gives a
+  different *magnitude* (2V instead of 3V), not just a flipped sign, so it
+  can't pass by symmetry.
+- **AC phase, not magnitude**: reversing a source leaves `|V|` unchanged
+  and shifts the phase by 180 degrees, so the dB column couldn't catch it.
+- **PULSE into an RC filter**: the waveform path through the current
+  source's stamp. A 5mA source in parallel with 1k is the Norton
+  equivalent of a 5V source behind 1k, so these rows should, and do,
+  match the `PULSE RC filter` rows above digit for digit.
+
+## The PULSE/SIN rows, and checking their error is discretization, not a bug
+
+The `PULSE RC filter` and `SIN source` rows run `examples/12_pulse_rc_filter`
+and `examples/13_sine_source` at the same `dt=2e-5` their committed
+`transient.csv` files were generated with. That step is fairly coarse
+against these circuits' time constants (`dt/RC` is 0.02 for the PULSE
+filter but 0.2 for the SIN filter, whose `RC` is 100us), so the SIN rows
+carry the largest transient error in the table. To confirm that error is
+backward Euler's ordinary first-order truncation error and not something
+wrong with how the source is evaluated, the SIN comparison was re-run by
+hand at a 10x smaller step (ngspice's reference trace computed at
+`tstep=2e-6` both times):
+
+| mini-spice `dt` | max \|V(out) error\| over the 5 SIN checkpoints |
+|---|---|
+| `2e-5` | 0.01613 V |
+| `2e-6` | 0.00162 V |
+
+A 10x smaller step gives a 10x smaller error: exactly first-order
+convergence, which is what backward Euler should show. A wrong waveform
+*parameter* (say, a swapped TD and TR) would not behave like this: it
+leaves an error floor that stops shrinking once `dt` is small. What this
+check *can't* rule out on its own is evaluating the source at the wrong
+end of the step (`t-dt` instead of `t`), since that also shrinks as
+O(dt). That's why the source's timing is checked separately, with no
+integration error in the way at all, by `test_waveforms.cpp`'s
+pure-resistive test (see DESIGN_DECISIONS.md #17), where `V(node)` must
+track the source's exact value at each step's end time to `1e-9`.
 
 ## AC analysis of nonlinear (diode/BJT) circuits: validated a different way
 

@@ -83,6 +83,9 @@ input, select{
 }
 input:focus, select:focus{ outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
 .w-sm{ width:78px; } .w-md{ width:100px; }
+.wf-params{ flex-basis:100%; display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); }
+.field label .unit{ text-transform:none; }
+.wf-hint{ flex-basis:100%; margin:0; color:var(--ink-dim); font-size:12px; line-height:1.5; }
 .btn{
   font-family:"IBM Plex Mono",monospace; font-size:13px; font-weight:600; padding:8px 16px; border-radius:8px;
   border:1px solid var(--accent); background:var(--accent); color:var(--accent-ink); cursor:pointer;
@@ -196,6 +199,26 @@ footer code{ font-family:"IBM Plex Mono",monospace; background:var(--surface-2);
       <div class="field"><label id="f-value-label">Value</label><input id="f-value" class="w-md" placeholder="1k"></div>
       <div class="field" id="f-extra1-wrap"><label id="f-extra1-label">IC</label><input id="f-extra1" class="w-sm" placeholder="0"></div>
       <div class="field" id="f-extra2-wrap"><label id="f-extra2-label">AC phase</label><input id="f-extra2" class="w-sm" placeholder="0"></div>
+      <div class="field" id="f-wf-wrap" style="display:none"><label>Waveform</label>
+        <select id="f-wf" class="w-md">
+          <option value="">None (DC)</option>
+          <option value="PULSE">PULSE</option>
+          <option value="SIN">SIN</option>
+        </select>
+      </div>
+      <!-- Transient waveform parameters. Seven generic slots, relabeled by
+           updateAddFormFields() from WAVEFORM_PARAMS (ui_logic.js): PULSE
+           uses all 7, SIN the first 5. -->
+      <div class="wf-params" id="f-wf-params" style="display:none">
+        <div class="field" id="f-wf1-wrap"><label id="f-wf1-label">P1</label><input id="f-wf1" class="w-sm"></div>
+        <div class="field" id="f-wf2-wrap"><label id="f-wf2-label">P2</label><input id="f-wf2" class="w-sm"></div>
+        <div class="field" id="f-wf3-wrap"><label id="f-wf3-label">P3</label><input id="f-wf3" class="w-sm"></div>
+        <div class="field" id="f-wf4-wrap"><label id="f-wf4-label">P4</label><input id="f-wf4" class="w-sm"></div>
+        <div class="field" id="f-wf5-wrap"><label id="f-wf5-label">P5</label><input id="f-wf5" class="w-sm"></div>
+        <div class="field" id="f-wf6-wrap"><label id="f-wf6-label">P6</label><input id="f-wf6" class="w-sm"></div>
+        <div class="field" id="f-wf7-wrap"><label id="f-wf7-label">P7</label><input id="f-wf7" class="w-sm"></div>
+        <p class="wf-hint" id="f-wf-hint"></p>
+      </div>
       <button class="btn" id="addBtn">+ Add</button>
     </div>
     <div class="error-banner" id="addError"></div>

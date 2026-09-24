@@ -62,9 +62,72 @@ const PRESETS={
     {type:"G",name:"G1",nodeA:"out",nodeB:"0",nodeC:"in",nodeD:"0",value:0.005},
     {type:"R",name:"Rload",nodeA:"out",nodeB:"0",value:2000},
   ],
+  // examples/12_pulse_rc_filter: PULSE(0 5 1m 0.1m 0.1m 2m 4m), no DC value
+  "PULSE into RC filter": [
+    {type:"V",name:"V1",nodeA:"in",nodeB:"0",waveform:{kind:"PULSE",params:[0,5,1e-3,1e-4,1e-4,2e-3,4e-3]}},
+    {type:"R",name:"R1",nodeA:"in",nodeB:"out",value:1000},
+    {type:"C",name:"C1",nodeA:"out",nodeB:"0",value:1e-6},
+  ],
+  // examples/13_sine_source: SIN(1 2 500 0 0), no DC value
+  "SIN into RC filter": [
+    {type:"V",name:"V1",nodeA:"in",nodeB:"0",waveform:{kind:"SIN",params:[1,2,500,0,0]}},
+    {type:"R",name:"R1",nodeA:"in",nodeB:"out",value:1000},
+    {type:"C",name:"C1",nodeA:"out",nodeB:"0",value:1e-7},
+  ],
+};
+
+// Presets that only make sense as a transient run also switch the analysis
+// tab and set dt/stop, so hitting Run shows the waveform straight away.
+// Values match the committed examples/12_*/ and 13_*/transient.csv.
+const PRESET_ANALYSIS={
+  "PULSE into RC filter": {mode:"tran", dt:"2e-5", stop:"10e-3"},
+  "SIN into RC filter":   {mode:"tran", dt:"2e-5", stop:"6e-3"},
 };
 
 const NAME_EXAMPLE={R:"R1",C:"C1",L:"L1",V:"V1",I:"I1",D:"D1",Q:"Q1",E:"E1",G:"G1"};
+
+/* ---- transient waveforms (PULSE/SIN) on V/I sources ----
+   Parameter order is the netlist's: PULSE(V1 V2 TD TR TF PW PER) and
+   SIN(VO VA FREQ TD THETA) -- see docs/SUPPORTED_COMPONENTS.md and
+   DESIGN_DECISIONS.md #17. The form never invents its own semantics:
+   `required` params must be typed in; every other param left blank is
+   written into the netlist as an explicit 0, which the engine defines
+   exactly (0 rise/fall = an instant edge, PER 0 = TR+PW+TF, SIN TD/THETA 0
+   = no delay/damping). Note that real SPICE's defaults for a *missing*
+   TR/TF/PW/PER are tied to the .tran step/stop instead -- this engine's
+   parser requires all 7 PULSE values precisely so that's never ambiguous,
+   and writing explicit 0s keeps it that way. `nonneg` mirrors the parser's
+   own "negative TR/TF/PW/PER" rejection, caught here at add time instead
+   of at run time. `unit` is "v" for a level (V or A, depending on the
+   source type), "s" for a time, and a literal string otherwise. */
+const WAVEFORM_PARAMS={
+  PULSE:[
+    {key:"V1",  label:"V1 initial",  unit:"v", required:true},
+    {key:"V2",  label:"V2 pulsed",   unit:"v", required:true},
+    {key:"TD",  label:"TD delay",    unit:"s"},
+    {key:"TR",  label:"TR rise",     unit:"s", nonneg:true},
+    {key:"TF",  label:"TF fall",     unit:"s", nonneg:true},
+    {key:"PW",  label:"PW width",    unit:"s", nonneg:true},
+    {key:"PER", label:"PER period",  unit:"s", nonneg:true},
+  ],
+  SIN:[
+    {key:"VO",    label:"VO offset",    unit:"v", required:true},
+    {key:"VA",    label:"VA amplitude", unit:"v", required:true},
+    {key:"FREQ",  label:"FREQ",         unit:"Hz", required:true},
+    {key:"TD",    label:"TD delay",     unit:"s"},
+    {key:"THETA", label:"THETA damping", unit:"1/s"},
+  ],
+};
+const WAVEFORM_HINT={
+  PULSE:"Blank timing fields are 0. TR/TF 0 = instant edge; PER 0 = repeat right after the fall (TR+PW+TF). Blank DC value = V1 for the DC operating point.",
+  SIN:"VO + VA·e^(−THETA·(t−TD))·sin(2π·FREQ·(t−TD)) for t ≥ TD, VO before. Blank TD/THETA are 0. Blank DC value = VO for the DC operating point.",
+};
+function waveformUnit(p, type){ return p.unit==="v" ? (type==="I"?"A":"V") : p.unit; }
+// The value the DC operating point uses when no explicit DC value was given
+// -- same rule as Waveform::rest_value() in component.hpp.
+function waveformRestValue(wf){ return wf.params[0]; }
+function waveformClause(wf){ return `${wf.kind}(${wf.params.join(" ")})`; }
+function fmtWaveform(wf){ return `${wf.kind}(${wf.params.map(fmtValue).join(" ")})`; }
 
 /* ---- value parsing (client-side validation/formatting only; the real
    solve happens in WASM, which re-parses the numeric netlist text itself) ---- */
@@ -85,7 +148,12 @@ function fmtValue(v){
   return parseFloat(v.toPrecision(5)).toString();
 }
 function fmtRowValue(r){
-  if(r.type==="V"||r.type==="I") return fmtValue(r.dcValue)+(r.type==="V"?"V":"A");
+  if(r.type==="V"||r.type==="I"){
+    // With a waveform and no explicit DC value, show the value the DC
+    // operating point actually uses (the waveform's rest value).
+    const dc = r.dcValue!==undefined ? r.dcValue : waveformRestValue(r.waveform);
+    return fmtValue(dc)+(r.type==="V"?"V":"A");
+  }
   if(r.type==="D") return "IS="+fmtValue(r.is!==undefined?r.is:1e-14)+"A";
   if(r.type==="Q") return "IS="+fmtValue(r.is!==undefined?r.is:1e-16)+"A";
   if(r.type==="E"||r.type==="G") return fmtValue(r.value);
@@ -94,7 +162,12 @@ function fmtRowValue(r){
 }
 function fmtRowExtra(r){
   if(r.type==="C"||r.type==="L") return (r.ic? "IC="+fmtValue(r.ic):"");
-  if(r.type==="V"||r.type==="I") return (r.acMag? "AC "+fmtValue(r.acMag)+"\u2220"+fmtValue(r.acPhase||0)+"\u00b0":"");
+  if(r.type==="V"||r.type==="I"){
+    const parts=[];
+    if(r.waveform) parts.push(fmtWaveform(r.waveform));
+    if(r.acMag) parts.push("AC "+fmtValue(r.acMag)+"\u2220"+fmtValue(r.acPhase||0)+"\u00b0");
+    return parts.join(" ");
+  }
   if(r.type==="D") return "N="+fmtValue(r.n!==undefined?r.n:1.0);
   if(r.type==="Q") return (r.pnp?"PNP ":"")+"BF="+fmtValue(r.bf!==undefined?r.bf:100)+" BR="+fmtValue(r.br!==undefined?r.br:1);
   return "";
@@ -127,7 +200,13 @@ function rowsToNetlist(rows){
       // out+ out- ctrl+ ctrl- value
       return `${r.name} ${r.nodeA} ${r.nodeB} ${r.nodeC} ${r.nodeD} ${r.value}`;
     }
-    let line=`${r.name} ${r.nodeA} ${r.nodeB} DC ${r.dcValue}`;
+    // V/I: [DC <value>] [PULSE(...)|SIN(...)] [AC <mag> <phase>], the
+    // order the parser expects. DC is omitted only for a waveform row with
+    // no explicit DC value, so the engine falls back to the waveform's rest
+    // value (PULSE's V1, SIN's VO) exactly as a hand-written netlist would.
+    let line=`${r.name} ${r.nodeA} ${r.nodeB}`;
+    if(r.dcValue!==undefined) line+=` DC ${r.dcValue}`;
+    if(r.waveform) line+=` ${waveformClause(r.waveform)}`;
     if(r.acMag) line+=` AC ${r.acMag} ${r.acPhase||0}`;
     return line;
   }).join("\n")+"\n";
@@ -174,7 +253,18 @@ function renderPresets(){
   Object.keys(PRESETS).forEach(name=>{
     const b=document.createElement("button");
     b.className="chip"; b.textContent=name;
-    b.onclick=()=>{ rows = PRESETS[name].map(r=>({...r})); renderTable(); save(); };
+    b.onclick=()=>{
+      // Deep copy, not a spread: a waveform row holds a nested object, and
+      // a shallow copy would leave it shared with the PRESETS entry.
+      rows = PRESETS[name].map(r=>JSON.parse(JSON.stringify(r)));
+      const a=PRESET_ANALYSIS[name];
+      if(a){
+        document.getElementById("tran-dt").value=a.dt;
+        document.getElementById("tran-stop").value=a.stop;
+        setMode(a.mode);
+      }
+      renderTable(); save();
+    };
     el.appendChild(b);
   });
   const clearBtn=document.createElement("button");
@@ -240,6 +330,58 @@ function updateAddFormFields(){
   else if(type==="E"){ valueLabel.textContent="Gain"; e1wrap.style.display="none"; e2wrap.style.display="none"; }
   else if(type==="G"){ valueLabel.textContent="Transconductance"; e1wrap.style.display="none"; e2wrap.style.display="none"; }
   else { valueLabel.textContent="DC value"; e1wrap.style.display=""; e1label.textContent="AC magnitude"; e2wrap.style.display=""; e2label.textContent="AC phase (deg)"; }
+
+  // Waveform selector + its parameter slots: V/I only.
+  const isSource = type==="V"||type==="I";
+  const wfSelect=document.getElementById("f-wf");
+  if(!isSource) wfSelect.value="";
+  document.getElementById("f-wf-wrap").style.display = isSource ? "" : "none";
+  const spec = WAVEFORM_PARAMS[wfSelect.value];
+  document.getElementById("f-wf-params").style.display = spec ? "" : "none";
+  if(spec){
+    // With a waveform attached, DC is optional (defaults to the rest value).
+    valueLabel.textContent="DC value (optional)";
+    for(let i=1;i<=7;i++){
+      const p=spec[i-1];
+      document.getElementById("f-wf"+i+"-wrap").style.display = p ? "" : "none";
+      if(p){
+        // The unit goes in its own span, exempt from the labels' CSS
+        // uppercasing -- otherwise "(s)" for seconds renders as "(S)",
+        // which reads as siemens.
+        const lab=document.getElementById("f-wf"+i+"-label");
+        lab.textContent = p.label+" ";
+        const u=document.createElement("span");
+        u.className="unit"; u.textContent=`(${waveformUnit(p,type)})`;
+        lab.appendChild(u);
+        document.getElementById("f-wf"+i).placeholder = p.required ? "required" : "0";
+      }
+    }
+    document.getElementById("f-wf-hint").textContent = WAVEFORM_HINT[wfSelect.value];
+  }
+}
+
+// Reads the waveform slots for the selected kind. Returns null when the
+// waveform is "None"; throws with a user-facing message on invalid input.
+function readWaveformFromForm(){
+  const kind=document.getElementById("f-wf").value;
+  const spec=WAVEFORM_PARAMS[kind];
+  if(!spec) return null;
+  const params=spec.map((p,i)=>{
+    const str=document.getElementById("f-wf"+(i+1)).value.trim();
+    if(!str){
+      if(p.required) throw new Error(`${kind} needs ${p.key}.`);
+      return 0;
+    }
+    const v=parseValue(str);
+    if(!Number.isFinite(v)) throw new Error(`${kind} ${p.key} must be a finite number.`);
+    if(p.nonneg && v<0) throw new Error(`${kind} ${p.key} can't be negative.`);
+    return v;
+  });
+  if(kind==="SIN" && !(params[2]>0)) throw new Error("SIN FREQ must be positive.");
+  // The engine accepts TR=PW=TF=0, but that pulse has zero width and just
+  // sits at V1 forever -- almost certainly a forgotten PW, so say so.
+  if(kind==="PULSE" && params[3]+params[4]+params[5]===0) throw new Error("PULSE has zero width: set PW (and/or TR/TF).");
+  return {kind, params};
 }
 
 function addComponentFromForm(){
@@ -269,7 +411,10 @@ function addComponentFromForm(){
     // Every type except D/Q requires its main value field; D's IS and Q's
     // IS/BF/BR all default to standard values if left blank. E/G always
     // require it (gain/transconductance has no sensible default).
-    if(type!=="D" && type!=="Q" && !valueStr) throw new Error("Value is required.");
+    // A V/I with a waveform is the one other exception: blank DC falls back
+    // to the waveform's rest value, same as a hand-written netlist.
+    const waveform = (type==="V"||type==="I") ? readWaveformFromForm() : null;
+    if(type!=="D" && type!=="Q" && !waveform && !valueStr) throw new Error("Value is required.");
     const value = valueStr ? parseValue(valueStr) : null;
     if((type==="R"||type==="C"||type==="L") && !(value>0)) throw new Error(type+" must have a positive value.");
     if((type==="D"||type==="Q") && value!==null && !(value>0)) throw new Error("IS must be positive.");
@@ -302,7 +447,8 @@ function addComponentFromForm(){
     } else if(type==="E"||type==="G"){
       row.value=value;
     } else {
-      row.dcValue=value;
+      if(value!==null) row.dcValue=value;
+      if(waveform) row.waveform=waveform;
       if(extra1) row.acMag=parseValue(extra1);
       if(extra2) row.acPhase=parseValue(extra2);
     }
@@ -317,6 +463,9 @@ function addComponentFromForm(){
     document.getElementById("f-extra1").value="";
     document.getElementById("f-extra2").value="";
     document.getElementById("f-pnp").checked=false;
+    document.getElementById("f-wf").value="";
+    for(let i=1;i<=7;i++) document.getElementById("f-wf"+i).value="";
+    updateAddFormFields();
   }catch(e){
     errEl.textContent=e.message;
     errEl.classList.add("show");
@@ -553,6 +702,7 @@ function load(){
 
 /* ---- wire up (module bootstrap above calls load()/render*() once WASM is ready) ---- */
 document.getElementById("f-type").addEventListener("change", updateAddFormFields);
+document.getElementById("f-wf").addEventListener("change", updateAddFormFields);
 document.getElementById("addBtn").addEventListener("click", addComponentFromForm);
 document.getElementById("runBtn").addEventListener("click", run);
 document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click", ()=>setMode(t.dataset.mode)));

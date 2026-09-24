@@ -1,0 +1,65 @@
+# Publishes the web tool (web/dist/mini-spice-web.html) to GitHub Pages as
+# the site's index.html, at https://aryaa94.github.io/mini-spice/.
+#
+# Deploys the *committed* page rather than rebuilding it with Emscripten,
+# so what goes live is byte-for-byte the file that was tested locally and
+# reviewed in the PR. It's still re-tested here before deploying: the
+# end-to-end web test (web/tests/ui_test.mjs) runs against it, using the
+# native CLI as its reference, and a failure stops the deploy.
+#
+# One-time setup in the repo: Settings -> Pages -> Build and deployment ->
+# Source: "GitHub Actions".
+name: Deploy web tool to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push supersedes a queued one, but never
+# cancels a deploy that's already running.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the native CLI (the web test's reference)
+        run: |
+          cmake -S . -B build/default -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMINISPICE_BUILD_TESTS=OFF
+          cmake --build build/default -j 4 --target minispice
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: End-to-end test of the page to be deployed
+        working-directory: web/tests
+        run: |
+          npm ci
+          node ui_test.mjs
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage the page as index.html
+        run: |
+          mkdir -p _site
+          cp web/dist/mini-spice-web.html _site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

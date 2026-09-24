@@ -9,6 +9,7 @@
 
 <h1 align="center">mini-spice</h1>
 <p align="center">A small SPICE-style circuit simulator, written from scratch in C++20.</p>
+<p align="center"><b><a href="https://aryaa94.github.io/mini-spice/">Try it in your browser &rarr;</a></b> (the real C++ engine, compiled to WebAssembly)</p>
 
 <p align="center">
   <a href="https://github.com/AryaA94/mini-spice/actions/workflows/ci.yml"><img src="https://github.com/AryaA94/mini-spice/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -27,6 +28,11 @@ and it's validated three independent ways: against hand-derived closed-form
 solutions, against an industry-standard SPICE implementation (ngspice), and
 with a battery of edge-case and convergence tests.
 
+There's also a [browser version](https://aryaa94.github.io/mini-spice/):
+build a circuit (or load a preset), pick DC / transient / AC, and see the
+results plotted. It runs the same C++ engine compiled to WebAssembly,
+not a JavaScript rewrite -- see [`web/README.md`](web/README.md).
+
 ## Quickstart
 
 ```sh
@@ -35,7 +41,7 @@ cmake --build build/default
 ctest --test-dir build/default
 ```
 
-That configures, builds the library/CLI/test suite, and runs all 60 test
+That configures, builds the library/CLI/test suite, and runs all 112 test
 cases. Then try it on a circuit:
 
 ```sh
@@ -133,7 +139,7 @@ Full netlist syntax reference: [`docs/SUPPORTED_COMPONENTS.md`](docs/SUPPORTED_C
 ctest --test-dir build/default --output-on-failure
 ```
 
-108 test cases / 155,000+ assertions, covering:
+112 test cases / 155,000+ assertions, covering:
 
 - **Unit tests** -- hand-computed linear systems for the Gaussian
   elimination solver (including a case requiring partial pivoting, and one

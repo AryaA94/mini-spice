@@ -52,23 +52,20 @@ invent a lighter-weight approach because it's faster.
   `t`, not just a step size `dt` -- see Decision 17 in
   `docs/DESIGN_DECISIONS.md` for why, and read it before touching that
   interface again.
-- 108 test cases, ~156,000 assertions, all passing. Clean under
+- 112 test cases, ~156,000 assertions, all passing. Clean under
   AddressSanitizer + UndefinedBehaviorSanitizer. ~92% line coverage
   (`gcov`/`gcovr`).
 - Full docs: `README.md`, `docs/ARCHITECTURE.md`,
-  `docs/DESIGN_DECISIONS.md` (17 numbered decisions, read this one in
+  `docs/DESIGN_DECISIONS.md` (19 numbered decisions, read this one in
   full), `docs/SUPPORTED_COMPONENTS.md`, `docs/ngspice_comparison.md`.
 - `tools/compare_to_spice.py` -- cross-validates against a real installed
   `ngspice` on essentially every feature. Extend this file, don't write a
   parallel one, when adding new cross-validation cases.
-- The web tool (`web/dist/mini-spice-web.html`) -- works, but **does not
-  yet have PULSE/SIN in its UI** (see "Immediate next steps" below). It
-  does have R/C/L/V/I/D/Q(NPN+PNP)/E/G.
+- The web tool (`web/dist/mini-spice-web.html`) -- R/C/L/V/I/D/Q(NPN+PNP)/
+  E/G, plus PULSE/SIN waveforms on V/I (Decision 18). Tested end to end by
+  `web/tests/ui_test.mjs` (jsdom, real WASM; see `web/README.md`).
 
 ### Explicitly not done (named honestly in the README, not hidden)
-- **PULSE/SIN in the web UI** -- the C++ engine and CLI fully support it;
-  the browser tool's component-builder form doesn't have fields for it
-  yet. This is the most natural immediate next step.
 - **PWL** (piecewise-linear) source waveform -- `Waveform::value_at(t)`
   already has the right shape to add this as a third `Kind` (table
   lookup instead of a closed form); not started.
@@ -158,6 +155,12 @@ the comment as much as the code.
   (the `has_nonlinear()` mechanism already generalizes to any new
   component that returns `true` from `is_nonlinear()`) rather than
   silently producing an unvalidated number.
+- Don't treat a component as validated on a hand-derived stamp test
+  alone, however simple it is. The independent current source had only
+  that, and ran backwards for the project's whole history until a
+  whole-circuit check compared it with ngspice (Decision 19). Every
+  component needs at least one whole circuit checked against an outside
+  reference (ngspice, a closed form).
 - Don't claim something works in the README/`SUPPORTED_COMPONENTS.md`
   before it's actually tested. This repo's credibility rests entirely on
   every checkmark being true.
@@ -171,40 +174,14 @@ the comment as much as the code.
 
 ## Immediate next steps, in priority order
 
-1. **Add PULSE/SIN to the web UI.** The engine and WASM bindings already
-   support it (nothing in `web/build_web.sh` or the C++ side needs to
-   change). What's needed is UI work in `web/ui_logic.js` /
-   `web/head_and_ui_start.html`:
-   - A way to enter a waveform when adding a `V`/`I` component -- the
-     simplest approach that stays consistent with the existing form
-     (which already has dynamic per-type fields) is probably a "Waveform"
-     dropdown (None / PULSE / SIN) that reveals the relevant parameter
-     inputs (7 fields for PULSE, up to 5 for SIN) when selected, similar
-     to how the `Q` type already reveals a PNP checkbox and a third node
-     field conditionally. Look at `updateAddFormFields()` and
-     `addComponentFromForm()` in `web/ui_logic.js` for the existing
-     pattern to extend.
-   - `rowsToNetlist()` needs a case for building the `PULSE(...)`/
-     `SIN(...)` clause text for a row that has a waveform.
-   - Add a "PULSE source" and/or "SIN source" preset button, matching the
-     existing `PRESETS` object's style.
-   - Rebuild with `web/build_web.sh` and test end-to-end (there's a
-     pattern of writing a throwaway jsdom test script for this: simulate
-     the page with `jsdom` (`npm install -g jsdom`), click through the
-     preset/form, and check the results, before considering it done -- a
-     *published* untested UI change isn't good enough at this project's
-     standard).
-   - Update `docs/SUPPORTED_COMPONENTS.md`'s "web tool" framing if it
-     mentions the gap, and remove the "not yet in the web UI" caveat
-     anywhere it's written once this is done.
-2. **PWL waveform** (piecewise-linear breakpoint table) as a natural
+1. **PWL waveform** (piecewise-linear breakpoint table) as a natural
    follow-up to PULSE/SIN, same validation standard.
-3. **MOSFET**, if there's appetite for it -- treat this as its own
+2. **MOSFET**, if there's appetite for it -- treat this as its own
    from-scratch validation project at the same rigor as the BJT, not a
    quick add. Read Decision 13 first as the template for how to structure
    that work (derive the model, get the Jacobian right, validate with 2+
    independent methods, cross-check ngspice).
-4. Anything else in the README's "Limitations and roadmap" section, which
+3. Anything else in the README's "Limitations and roadmap" section, which
    is kept current and is the authoritative list -- check there for
    what's still open rather than trusting this document's snapshot if
    time has passed.
@@ -228,8 +205,9 @@ exact `gcovr` invocation, or just replicate the pattern -- configure a
 ngspice cross-validation: `python3 tools/compare_to_spice.py` (needs
 `ngspice` installed -- `apt install ngspice` on Debian/Ubuntu).
 
-Web tool: `cd web && ./build_web.sh` (needs `emcc` -- see that script's
-header comment). **On a normal cloud dev environment with full internet
+Web tool: `cd web && ./build_web.sh` (needs `em++` -- see that script's
+header comment), then `cd web/tests && npm install && node ui_test.mjs`
+to test the result end to end. **On a normal cloud dev environment with full internet
 access, the standard `emsdk install latest && emsdk activate latest` flow
 should just work** -- the sandbox this was originally built in had network
 access restricted to a short allowlist of domains that broke emsdk's own

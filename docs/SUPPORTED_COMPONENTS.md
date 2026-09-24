@@ -4,7 +4,7 @@
 |---|---|---|---|---|---|
 | Resistor | `R` | ✅ | ✅ | ✅ | |
 | Independent voltage source | `V` | ✅ | ✅ (constant or PULSE/SIN) | ✅ | See DESIGN_DECISIONS.md #17 for PULSE/SIN; AC uses the separate `AC` clause regardless |
-| Independent current source | `I` | ✅ | ✅ (constant or PULSE/SIN) | ✅ | Same PULSE/SIN support as `V` |
+| Independent current source | `I` | ✅ | ✅ (constant or PULSE/SIN) | ✅ | Same PULSE/SIN support as `V`. Current flows from `<node1>` through the source to `<node2>` (SPICE's direction -- see DESIGN_DECISIONS.md #19) |
 | Capacitor | `C` | ✅ (open circuit) | ✅ (backward-Euler companion) | ✅ | `IC=` sets the t=0 initial voltage |
 | Inductor | `L` | ✅ (small-resistance approx.) | ✅ (backward-Euler companion) | ✅ | `IC=` sets the t=0 initial current |
 | Diode | `D` | ✅ (Newton-Raphson) | ✅ (Newton-Raphson per step) | ✅ (bias point + linearize) | See DESIGN_DECISIONS.md #12, #16 |
@@ -47,12 +47,19 @@ G<name> <out+> <out-> <ctrl+> <ctrl-> <transconductance>
   DC operating point always uses `<dc_value>` (defaulting to the
   waveform's own rest value -- `PULSE`'s `V1`, `SIN`'s `VO` -- if no
   explicit `DC` was given), and AC sweeps use the separate `AC` clause,
-  not the waveform. `PULSE`'s `PER` defaults to `TR+PW+TF` if omitted or
-  0 (repeat immediately). `SIN`'s `TD` and `THETA` are optional, both
+  not the waveform. `PULSE` needs all 7 values (unlike real SPICE,
+  which fills missing ones from the `.tran` card); a `PER` of 0 means
+  `TR+PW+TF` (repeat immediately). `SIN`'s `TD` and `THETA` are optional, both
   defaulting to 0. See DESIGN_DECISIONS.md #17.
 
 - `<node1>`/`<node2>` are arbitrary names; nodes are created the first time
   they're mentioned.
+- **Current source direction**: `I1 a b 2m` pushes 2mA from `a` through
+  the source to `b`, i.e. *out of* the source at `b` into the rest of the
+  circuit. So `I1 0 out 2m` with a 1k resistor from `out` to ground gives
+  `V(out) = +2V`. This is SPICE's convention (checked against ngspice), and
+  the same direction `G` uses for its output pair. See
+  DESIGN_DECISIONS.md #19.
 - `[DC]` is optional -- `V1 in 0 5` and `V1 in 0 DC 5` are equivalent.
 - `AC <magnitude> [<phase_deg>]` sets the small-signal excitation used only
   by AC sweeps; phase defaults to 0 degrees. A source with no `AC` clause

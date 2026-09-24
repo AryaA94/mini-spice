@@ -32,3 +32,8 @@ tools/_tmp_*
 examples/**/_tmp_*
 /tmp/_ns_*
 /tmp/_ms_*
+
+# web/build_web.sh scratch directory (recreated on every build)
+web/_wasm_build/
+# npm install for web/tests
+web/tests/node_modules/
