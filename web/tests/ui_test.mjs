@@ -1,23 +1,11 @@
-// web/tests/ui_test.mjs -- end-to-end test of the built web tool.
+// End-to-end test for the web page. Loads web/dist/mini-spice-web.html in
+// jsdom, clicks through the presets and the form, and checks:
+//   - the netlist text it generates
+//   - the results vs. the native CLI
+//   - PULSE/SIN outputs on resistor-only circuits vs. the formulas
 //
-// Loads web/dist/mini-spice-web.html (the real compiled WASM engine plus
-// the UI) in jsdom, clicks through presets and the add-component form the
-// way a person would, and checks the results three independent ways:
-//
-//   1. The netlist text the UI generates, asserted literally against the
-//      hand-written examples/*.cir it's meant to reproduce (those netlists
-//      are themselves validated against ngspice and pinned by golden tests).
-//   2. The WASM engine's output vs. the native CLI (a different compiler,
-//      fed a hand-written netlist rather than the UI's generated one).
-//   3. For waveform sources on purely resistive circuits (no integration
-//      error to hide behind), the output vs. the SPICE PULSE/SIN
-//      definitions evaluated here in the test, from the definitions in
-//      docs/SUPPORTED_COMPONENTS.md -- a test oracle, not a port of the
-//      engine: nothing here is shipped or used by the page.
-//
-// Usage (from the repo root, after building the CLI and web/build_web.sh):
+// Needs the CLI built first. Run with:
 //   cd web/tests && npm install && node ui_test.mjs
-// Exits nonzero on any failure.
 import { JSDOM } from "jsdom";
 import { execFileSync } from "child_process";
 import fs from "fs";
@@ -36,8 +24,7 @@ function check(cond, msg) {
   if (cond) { passes++; console.log("  ok   " + msg); }
   else { failures++; console.log("  FAIL " + msg); }
 }
-// Runs one group of checks; an exception inside counts as a failure and
-// the remaining sections still run.
+// an exception counts as a failure but the other sections keep going
 async function section(name, body) {
   console.log("\n" + name);
   try { await body(); } catch (e) { failures++; console.log("  FAIL threw: " + e.message); }
@@ -73,8 +60,7 @@ function set(d, id, value) {
   if (el.type === "checkbox") el.checked = value; else el.value = value;
   el.dispatchEvent(new d.defaultView.Event("change"));
 }
-// Fills and submits the add form. `wf` is the list of raw strings typed
-// into the waveform slots, in order. Returns the add-error text ("" = ok).
+// fills in the form and clicks Add. Returns the error text ("" if it worked)
 function addViaForm(d, { type, name, nodeA, nodeB, value = "", extra1 = "", extra2 = "", waveform = "", wf = [] }) {
   set(d, "f-type", type);
   set(d, "f-wf", waveform);
@@ -109,9 +95,8 @@ function parseCsv(text) {
   const lines = text.trim().split("\n");
   return { header: lines[0].split(","), rows: lines.slice(1).map(l => l.split(",").map(Number)) };
 }
-// The WASM boundary prints with default ostream precision (6 significant
-// digits), the CLI's --csv with more, so identical solves agree to ~5e-6
-// relative. Returns the worst |x-y| / (rel*|y| + abs); <= 1 is a match.
+// The web build prints 6 digits and the CLI prints more, so compare with a
+// tolerance. Returns the worst error / tolerance, so <= 1 means it matches.
 function csvScore(a, b, rel = 1e-5, abs = 1e-12) {
   const A = parseCsv(a), B = parseCsv(b);
   if (A.header.join() !== B.header.join()) return Infinity;
@@ -123,14 +108,13 @@ function csvScore(a, b, rel = 1e-5, abs = 1e-12) {
   }));
   return worst;
 }
-// DC: the web's raw output is "node,voltage_V\n<name>,<v>...\nI(V1),<i>",
-// the CLI's --csv is a different shape, so compare the numbers by name.
+// DC output formats differ between the page and the CLI, so compare by name
 function dcWeb(raw) {
   const m = {};
   raw.trim().split("\n").slice(1).forEach(l => { const [k, v] = l.split(","); m[k] = Number(v); });
   return m;
 }
-// The CLI's dc command prints "  V(name) = <value> V" lines (6 decimals).
+
 function dcCli(circuitPath) {
   const m = {};
   for (const l of execFileSync(CLI, ["dc", circuitPath], { encoding: "utf8" }).split("\n")) {
@@ -140,8 +124,7 @@ function dcCli(circuitPath) {
   return m;
 }
 
-// Test oracles: the SPICE definitions, straight from
-// docs/SUPPORTED_COMPONENTS.md / DESIGN_DECISIONS.md #17.
+// PULSE and SIN written out straight from the SPICE definitions
 function pulseAt(t, [v1, v2, td, tr, tf, pw, per]) {
   if (t < td) return v1;
   const period = per > 0 ? per : tr + pw + tf;
@@ -169,8 +152,7 @@ await section("PULSE preset reproduces examples/12_pulse_rc_filter", async () =>
   const net = netlistOf(w);
   check(net === "V1 in 0 PULSE(0 5 0.001 0.0001 0.0001 0.002 0.004)\nR1 in out 1000\nC1 out 0 0.000001\n",
         "generated netlist is exactly the expected text: " + JSON.stringify(net));
-  // Same circuit as the example, parameter for parameter (the example
-  // writes 1m/0.1m/1k/1u where the UI writes plain decimals).
+  // the example file uses 1m/1k/1u, the page writes plain numbers
   const exLines = componentLines(EX12);
   check(exLines[0] === "V1 in 0 PULSE(0 5 1m 0.1m 0.1m 2m 4m)" && exLines[1] === "R1 in out 1k" && exLines[2] === "C1 out 0 1u",
         "examples/12 netlist is the one the expected text above transcribes");
@@ -178,8 +160,7 @@ await section("PULSE preset reproduces examples/12_pulse_rc_filter", async () =>
   const ref = cli(["tran", path.join(REPO, "examples/12_pulse_rc_filter/circuit.cir"), "--dt", "2e-5", "--stop", "10e-3"]);
   const score = csvScore(web, ref);
   check(score <= 1, `transient matches native CLI on examples/12 (score ${score.toFixed(3)})`);
-  // Negative control: the comparison must be able to fail. Same circuit
-  // with TD nudged from 1m to 1.02m (one timestep) must NOT match.
+  // make sure the comparison can actually fail: shift TD by one step
   const nudged = cliNetlist(EX12.replace("PULSE(0 5 1m", "PULSE(0 5 1.02m"), ["tran", "--dt", "2e-5", "--stop", "10e-3"]);
   check(csvScore(web, nudged) > 1, "negative control: a one-step TD shift is detected as a mismatch");
   const dc = dcWeb(run(d, "dc")), dcRef = dcCli(path.join(REPO, "examples/12_pulse_rc_filter/circuit.cir"));
@@ -256,7 +237,7 @@ await section("Form: validation rejects bad waveforms without adding a row", asy
 await section("Form: PULSE built by hand == the PULSE preset", async () => {
   const { w, d } = await loadPage();
   const e1 = addViaForm(d, { type: "V", name: "V1", nodeA: "in", nodeB: "0", waveform: "PULSE", wf: ["0", "5", "1m", "0.1m", "0.1m", "2m", "4m"] });
-  // Checked right away: the next addViaForm() call sets every field itself.
+  // check now, the next addViaForm() fills every field anyway
   check(d.getElementById("f-type").value === "V" && d.getElementById("f-wf").value === "" && !visible(d, "f-wf-params") &&
         [1, 2, 3, 4, 5, 6, 7].every(i => d.getElementById("f-wf" + i).value === ""),
         "form resets waveform selector and slots after a successful add");
@@ -282,7 +263,7 @@ await section("Form: PULSE with explicit DC and AC on a resistive divider (close
     worstIn = Math.max(worstIn, Math.abs(r[iIn] - pulseAt(r[iT], P)));
     worstOut = Math.max(worstOut, Math.abs(r[iOut] - pulseAt(r[iT], P) / 2));
   }
-  // 6 significant digits on values up to 3V -> print error <= ~5e-6.
+  // 6 digits on values up to 3V -> about 5e-6 of rounding
   check(tbl.rows.length === 701 && worstIn < 1e-5 && worstOut < 1e-5,
         `V(in) tracks PULSE definition, V(out) = half of it, all ${tbl.rows.length} steps (worst ${worstIn.toExponential(2)} / ${worstOut.toExponential(2)} V)`);
   const ref = cliNetlist("V1 in 0 DC 2 PULSE(1 3 0.5m 0.2m 0.3m 1m 3m) AC 1 0\nR1 in out 1k\nR2 out 0 1k\n", ["tran", "--dt", "1e-5", "--stop", "7e-3"]);
@@ -303,8 +284,7 @@ await section("Form: SIN on a current source, with delay and damping (closed-for
   check(!err, "I source with SIN accepted");
   check(netlistOf(w).split("\n")[0] === "I1 0 n DC 0.002 SIN(0 0.001 1000 0.0002 500)", "netlist: " + netlistOf(w).split("\n")[0]);
   const dc = dcWeb(run(d, "dc"));
-  // "I1 0 n": SPICE's convention delivers the current into n, so V(n) is
-  // +R*i (DESIGN_DECISIONS.md #19). k = V(n) per amp of source current.
+  // "I1 0 n" pushes current into n, so V(n) = +R*i
   const k = dc.n / 2e-3;
   check(Math.abs(k - 1000) < 1e-6, `DC point: V(n) = +1k * 2mA (SPICE current direction; k = ${k})`);
   const tbl = parseCsv(run(d, "tran", { "tran-dt": "1e-5", "tran-stop": "5e-3" }));
@@ -333,8 +313,7 @@ await section("Presets pick their analysis and run immediately", async () => {
     check(d.querySelector(".tab.active").dataset.mode === expect[name] && shown && !err,
           `"${name}" -> ${expect[name]} tab, results shown${err ? " (error: " + err + ")" : ""}`);
   }
-  // RLC preset now runs at the example's dt (2e-6), fine enough to resolve
-  // the ringing; compare against the CLI on examples/04 at the same settings.
+  // RLC preset should use dt=2e-6 like examples/04
   clickPreset(d, "RLC underdamped");
   const ref = cli(["tran", path.join(REPO, "examples/04_rlc_underdamped/circuit.cir"), "--dt", "2e-6", "--stop", "3e-3"]);
   check(csvScore(d.getElementById("rawData").value, ref) <= 1, "RLC preset's auto-run matches the CLI on examples/04 at dt=2e-6");
@@ -354,18 +333,17 @@ await section("Names and nodes that would corrupt the netlist are rejected", asy
     check(err === expected, `${JSON.stringify(c.nodeA)} / ${c.name} -> "${err}"`);
   }
   check(rowsOf(w).length === 0, "none of them were added");
-  // Duplicate names are caught regardless of case, as SPICE treats them.
+  // duplicate names, any case
   addViaForm(d, { type: "R", name: "R1", nodeA: "a", nodeB: "0", value: "1k" });
   check(addViaForm(d, { type: "R", name: "r1", nodeA: "a", nodeB: "0", value: "2k" }) === "A component named 'R1' already exists.", "r1 vs existing R1 is a duplicate");
-  // A node differing only in case would silently be a separate node.
+  // node that only differs by case
   const err = addViaForm(d, { type: "R", name: "R2", nodeA: "A", nodeB: "0", value: "1k" });
   check(err.startsWith("Node 'A' differs from the existing node 'a' only in capitalization"), "near-miss node 'A' vs 'a' caught: " + err.slice(0, 60));
   check(addViaForm(d, { type: "R", name: "R3", nodeA: "a", nodeB: "GND", value: "1k" }) === "", "GND vs 0 (both ground) is not flagged");
 });
 
 await section("User text is escaped wherever it's shown", async () => {
-  // Rows can also come from localStorage, bypassing form validation, so the
-  // rendering itself must escape. Seed a hostile saved state directly.
+  // saved state skips the form checks, so put bad names straight into storage
   const evil = "<img src=x onerror=window.__pwned=1>";
   const state = { rows: [{ type: "V", name: "V1", nodeA: evil, nodeB: "0", dcValue: 1 }, { type: "R", name: "R1", nodeA: evil, nodeB: "0", value: 1000 }], mode: "dc" };
   const { w, d } = await loadPage({ storage: { minispice_web_state_v1: JSON.stringify(state) } });

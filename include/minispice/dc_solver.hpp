@@ -1,9 +1,8 @@
 #pragma once
 // dc_solver.hpp
 //
-// Single-solve DC operating point: capacitors are open circuits, inductors
-// are approximated as a small resistance (see component.cpp / component's
-// DC-op stamp, and DESIGN_DECISIONS.md).
+// DC operating point. Caps are open, inductors are a tiny resistance.
+// Diodes/BJTs are solved with Newton-Raphson.
 
 #include <vector>
 
@@ -11,11 +10,9 @@
 
 namespace minispice {
 
-// Returns the full unknown vector [node voltages | branch currents]. Read
-// specific values out of it with node_voltage()/source_current() from
-// mna_result.hpp. Throws SingularMatrixError (with a human message; see
-// describe_singular_row()) for a floating node or an over-constrained
-// voltage source.
+// Returns [node voltages | branch currents]; use node_voltage() /
+// source_current() to read it. Throws SingularMatrixError for a floating
+// node or conflicting voltage sources.
 std::vector<double> solve_dc(const Circuit& circuit);
 
 }  // namespace minispice

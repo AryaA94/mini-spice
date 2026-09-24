@@ -1,8 +1,5 @@
-// Diode / Newton-Raphson validation. The core claim these tests back up:
-// a diode+resistor DC operating point computed by this solver's
-// Newton-Raphson loop matches an *independently derived* closed-form
-// answer (via the Lambert W function -- see the derivation comment below)
-// to double precision, not just "looks like a plausible diode curve".
+// Diode tests. The DC operating points are checked against the exact
+// Lambert W solution (derivation below), not just "looks reasonable".
 #include <cmath>
 
 #include <catch2/catch_test_macros.hpp>
@@ -24,8 +21,7 @@ using Catch::Matchers::ContainsSubstring;
 TEST_CASE("Diode stamp matches the hand-derived tangent-line companion model at a given guess", "[diode][components]") {
     // Is=1e-14, N=1, guess=0.5V. a = N*Vt = 0.0258649258.
     Diode d("D1", 0, 1, 1e-14, 1.0);
-    // Drive the guess to 0.5V the same way the solver does: one large
-    // update_nr_guess() call from a solution vector implying V(0)-V(1)=0.5.
+    // set the guess to 0.5V
     d.update_nr_guess(std::vector<double>{0.5, 0.0});  // first step is clamped (see below), so read it back
     double guess = d.guess_voltage_for_test();
 
@@ -56,7 +52,7 @@ TEST_CASE("Diode reset_nr_state returns the guess to 0V", "[diode][components]")
 TEST_CASE("Diode update_nr_guess clamps a large step to a bounded number of thermal voltages", "[diode][components]") {
     Diode d("D1", 0, 1, 1e-14, 1.0);  // starts at guess=0
     double a = Diode::thermal_voltage();
-    // Ask it to jump straight to 5V -- far more than the per-step cap.
+    // try to jump straight to 5V, should get clamped
     double delta = d.update_nr_guess(std::vector<double>{5.0, 0.0});
     REQUIRE(d.guess_voltage_for_test() < 5.0);   // did not jump all the way
     REQUIRE(d.guess_voltage_for_test() > 0.0);   // but did move forward
@@ -65,22 +61,15 @@ TEST_CASE("Diode update_nr_guess clamps a large step to a bounded number of ther
 }
 
 namespace {
-// V_D solved from Vs = R*Is*(exp(V_D/a)-1) + V_D via the Lambert W
-// function: with x = V_D/a, k = R*Is/a, C = (Vs+R*Is)/a, the equation
-// reduces to k*e^x + x = C, whose solution is x = C - W(k*e^C) (since
-// k*e^x = k*e^{C-W} = (k*e^C)*e^{-W} = W by the defining property of W,
-// so k*e^x + x = W + (C-W) = C, confirming the substitution). Computed
-// here with scipy.special.lambertw in a one-off script and hardcoded --
-// this is a genuinely independent derivation of the answer, not a second
-// copy of the solver's own Newton-Raphson code.
+// Exact answer for a diode + resistor: Vs = R*Is*(exp(V_D/a)-1) + V_D.
+// With x = V_D/a, k = R*Is/a, C = (Vs+R*Is)/a this becomes k*e^x + x = C,
+// so x = C - W(k*e^C). Values below computed with scipy.special.lambertw.
 constexpr double kVt = 0.0258649258;
 }  // namespace
 
 TEST_CASE("Diode+resistor DC operating point matches the closed-form Lambert-W solution", "[diode][analytic]") {
-    // V1=5V, R1=1k, Is=1e-14, N=1 -> V_D = 0.6928878327462407 (Lambert W,
-    // cross-checked separately against both scipy.optimize.brentq root
-    // finding and ngspice 42, all three agreeing to ~5 significant figures
-    // or better -- see docs/ngspice_comparison.md).
+    // V1=5V, R1=1k, Is=1e-14, N=1 -> V_D = 0.6928878327462407
+    // (also matches brentq and ngspice)
     auto circuit = Circuit::parse("V1 in 0 DC 5\nR1 in a 1k\nD1 a 0\n");
     auto sol = solve_dc(circuit);
     REQUIRE_THAT(node_voltage(circuit, sol, "a"), WithinAbs(0.6928878327462407, 1e-6));
@@ -106,22 +95,16 @@ TEST_CASE("A diode wired directly across an ideal source with no current limitin
 }
 
 TEST_CASE("The same pathological circuit fails clearly through solve_ac_sweep too, not just solve_dc", "[diode][edge-cases][ac]") {
-    // solve_ac_sweep() now calls solve_dc() internally to establish a bias
-    // point (see DESIGN_DECISIONS.md #15) -- this confirms a circuit with
-    // no sensible DC operating point still fails there with a clear error,
-    // rather than the AC path somehow masking or bypassing it.
+    // AC runs a DC solve first, so a circuit with no valid bias point should
+    // still fail with the DC error.
     auto circuit = Circuit::parse("V1 a 0 DC 5 AC 1 0\nD1 a 0\n");
     REQUIRE_THROWS_AS(solve_ac_sweep(circuit, 100, 1000, 10), SingularMatrixError);
 }
 
 TEST_CASE("solve_ac_sweep computes a correct small-signal response for a circuit containing a diode", "[diode][ac]") {
-    // AC analysis of a nonlinear circuit means linearizing around a DC
-    // bias point first (see DESIGN_DECISIONS.md #15) -- checked here
-    // against an independent method that doesn't touch the AC solver at
-    // all: perturb the DC source by +-eps and take the finite-difference
-    // slope, which should match the AC solver's small-signal gain (this
-    // circuit has no reactive elements, so the response is frequency-
-    // independent and the two methods should agree closely).
+    // Check the AC gain against a finite difference of two DC solves
+    // (V1 +- eps). No caps or inductors, so the gain is the same at any
+    // frequency. See DESIGN_DECISIONS.md #16.
     auto make_circuit = [](double v) {
         return Circuit::parse("V1 in 0 DC " + std::to_string(v) + "\nR1 in a 1k\nD1 a 0\n");
     };
@@ -150,9 +133,7 @@ TEST_CASE("Diode transient settles to the same operating point as the DC solve",
 }
 
 TEST_CASE("A linear-only circuit's DC result is unaffected by the Newton-Raphson wrapper", "[diode][regression]") {
-    // Guards against the NR loop accidentally changing behavior for every
-    // circuit that has no diode in it -- should still be the exact
-    // R2/(R1+R2) fraction, single solve, no iteration artifacts.
+    // make sure the Newton loop didn't change anything for linear circuits
     auto circuit = Circuit::parse("V1 in 0 DC 10\nR1 in out 1k\nR2 out 0 1k\n");
     auto sol = solve_dc(circuit);
     REQUIRE_THAT(node_voltage(circuit, sol, "out"), WithinRel(5.0, 1e-12));

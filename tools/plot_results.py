@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 """
-plot_results.py -- turns mini-spice CLI output into the plots in examples/.
-
-The C++ CLI never draws anything; it only ever emits CSV (via --csv on
-`tran`/`ac`). This script is the other half of that split: it reads those
-CSVs (or, for the convergence plot, a small hardcoded table) and renders
-matplotlib figures. Every plot in examples/ was produced by one of the
-three subcommands below -- see examples/README.md for the exact commands.
+plot_results.py - makes the plots in examples/ from the CLI's --csv output
+(matplotlib).
 
 Subcommands:
   transient   Plot one or more node voltages vs time, optionally overlaid

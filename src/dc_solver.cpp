@@ -10,15 +10,8 @@
 namespace minispice {
 
 namespace {
-// Newton-Raphson bounds for circuits containing nonlinear devices
-// (currently: diodes). A purely linear circuit -- every circuit this
-// project validates outside of the diode-specific tests -- has no
-// component reporting is_nonlinear(), so the loop below stamps, solves
-// once, finds max_delta == 0.0 (no nonlinear component contributed to it),
-// and returns immediately: numerically and structurally identical to a
-// single plain solve, just sharing one code path with the nonlinear case
-// instead of maintaining two. See DESIGN_DECISIONS.md, "Newton-Raphson for
-// nonlinear devices".
+// Newton-Raphson limits. A linear circuit gets max_delta = 0 on the first
+// pass and exits after one solve, so it doesn't need its own code path.
 constexpr int kMaxNewtonIterations = 100;
 constexpr double kNewtonToleranceVolts = 1e-9;
 }  // namespace
@@ -41,15 +34,9 @@ std::vector<double> solve_dc(const Circuit& circuit) {
         } catch (const SingularMatrixError& e) {
             std::string msg = describe_singular_row(circuit, e.row());
             if (circuit.has_nonlinear()) {
-                // A nonlinear device driven toward an extreme operating
-                // point (e.g. a diode with no current-limiting path) can
-                // make a companion-model conductance astronomically large
-                // partway through iteration, which manifests here as
-                // numerical singularity even though the circuit's raw
-                // topology is fine -- worth surfacing since
-                // describe_singular_row()'s diagnosis (a floating node or a
-                // shorted source) would otherwise be actively misleading
-                // for this cause.
+                // A diode with nothing limiting its current can make the
+                // matrix singular mid-iteration, and the floating-node message
+                // alone would be misleading.
                 msg +=
                     " (this can also happen mid-iteration for a nonlinear device driven to an extreme operating "
                     "point by a lack of current limiting, e.g. a diode wired directly across an ideal source)";

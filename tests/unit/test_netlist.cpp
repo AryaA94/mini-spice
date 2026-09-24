@@ -107,8 +107,7 @@ TEST_CASE("Circuit::parse rejects too few fields with a ParseError naming the li
 }
 
 TEST_CASE("Circuit::parse rejects an unrecognized component prefix", "[netlist]") {
-    // 'Z' isn't (yet) a recognized prefix -- unlike 'Q', which used to be
-    // this test's example until a BJT component claimed that letter.
+    // Z isn't a component type (this used Q until I added the BJT)
     REQUIRE_THROWS_AS(Circuit::parse("Z1 a 0 1k\n"), ParseError);
 }
 

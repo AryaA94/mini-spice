@@ -5,6 +5,11 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] - Web tool polish and input safety
 
+### Changed (web tool, redesign)
+- New dark layout: examples as a row of tiles tagged with their analysis,
+  and a two-column workspace (circuit on the left, analysis and results
+  on the right, stacked on phones). Most explanatory text removed.
+
 ### Fixed (web tool)
 - **A node name containing a space silently built the wrong circuit**
   (`in put` became two separate netlist fields). Names and nodes are now

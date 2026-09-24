@@ -1,17 +1,11 @@
 #pragma once
 // matrix.hpp
 //
-// A small, dense linear-algebra layer written from scratch (no Eigen/BLAS)
-// because the whole point of this project is to understand what a circuit
-// solver actually does at the matrix level, not to call a library.
+// Dense matrix + Gaussian elimination, written by hand (no Eigen) since the
+// point of the project is to understand the solver.
 //
-// Templated on Scalar so the *same* elimination code services both:
-//   - DC / transient analysis (Scalar = double)
-//   - AC analysis              (Scalar = std::complex<double>)
-//
-// This is intentional: modified nodal analysis (MNA) doesn't care whether
-// the entries are real or complex, only the elimination routine's pivoting
-// rule needs a magnitude, which std::abs() gives us for both.
+// Templated so the same code does DC/transient (double) and AC
+// (std::complex<double>).
 
 #include <complex>
 #include <cstddef>
@@ -22,9 +16,8 @@
 
 namespace minispice {
 
-// Thrown when the coefficient matrix is (numerically) singular. Carries the
-// row index that had no usable pivot so callers can translate it back into
-// "which node has no DC path to ground" / "which nodes are shorted".
+// Singular matrix. The row index lets the caller say which node is floating
+// or which source is shorted.
 class SingularMatrixError : public std::runtime_error {
 public:
     explicit SingularMatrixError(std::size_t row, std::string what)
@@ -35,11 +28,8 @@ private:
     std::size_t row_;
 };
 
-// Returns the magnitude of a real or complex scalar. Used for partial
-// pivoting: we always pivot on the entry with the largest magnitude in the
-// current column, which is what keeps Gaussian elimination numerically
-// stable for the kinds of matrices MNA produces (conductances can span many
-// orders of magnitude, e.g. 1e-12 F capacitors next to 1e6 ohm resistors).
+// |x| for real or complex, used to pick pivots. Partial pivoting matters
+// here because MNA entries can span a huge range (pF caps next to MEG resistors).
 template <typename Scalar>
 double magnitude(const Scalar& v) {
     if constexpr (std::is_same_v<Scalar, std::complex<double>>) {
@@ -49,7 +39,7 @@ double magnitude(const Scalar& v) {
     }
 }
 
-// A plain dense matrix, row-major, stored as a single contiguous buffer.
+// Row-major, one contiguous buffer.
 template <typename Scalar>
 class Matrix {
 public:
@@ -70,15 +60,10 @@ private:
     std::vector<Scalar> data_;
 };
 
-// Solves A x = b via Gaussian elimination with partial pivoting.
-// A is copied (not modified in place) so the caller can re-solve the same
-// system with a different RHS without re-building it, e.g. AC sweeps that
-// rebuild A per frequency but transient steps that sometimes reuse it.
-//
-// On a singular pivot column (all candidates below `epsilon` in magnitude)
-// throws SingularMatrixError with the offending row index. This is how the
-// solver detects floating nodes (a node with no DC path to ground leaves an
-// all-zero row/column in the conductance matrix) and shorted sources.
+// Solves A x = b (Gaussian elimination, partial pivoting). Takes copies so
+// the caller's A and b aren't modified.
+// Throws SingularMatrixError if a column has no pivot above epsilon, which
+// is how floating nodes and shorted sources get caught.
 template <typename Scalar>
 std::vector<Scalar> solve_linear_system(Matrix<Scalar> A, std::vector<Scalar> b, double epsilon = 1e-12) {
     const std::size_t n = A.rows();
@@ -91,8 +76,7 @@ std::vector<Scalar> solve_linear_system(Matrix<Scalar> A, std::vector<Scalar> b,
 
     // Forward elimination with partial pivoting.
     for (std::size_t col = 0; col < n; ++col) {
-        // Find the pivot row: the row >= col with the largest-magnitude
-        // entry in this column.
+        // pick the largest entry in this column as the pivot
         std::size_t pivot_row = col;
         double best = magnitude(A(col, col));
         for (std::size_t r = col + 1; r < n; ++r) {

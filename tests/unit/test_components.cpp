@@ -1,6 +1,5 @@
-// Verifies the *exact* matrix/RHS entries each component stamps, by hand,
-// rather than only checking "the code compiles and runs". This is what
-// catches an off-by-sign companion model before it ever reaches a solver.
+// Checks the exact matrix/RHS entries each component stamps, worked out by
+// hand. A sign error in a companion model shows up here first.
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
@@ -104,7 +103,7 @@ TEST_CASE("Inductor backward-Euler companion stamp matches the hand-derived Nort
     double g_eq = 1e-3;
     REQUIRE_THAT(A(0, 0), WithinAbs(g_eq, 1e-12));
     REQUIRE_THAT(A(1, 1), WithinAbs(g_eq, 1e-12));
-    // Current source of -i_prev injected into p, +i_prev into n (opposite sign convention from the capacitor).
+    // -i_prev into p, +i_prev into n (opposite of the capacitor)
     REQUIRE_THAT(b[0], WithinAbs(-0.5, 1e-12));
     REQUIRE_THAT(b[1], WithinAbs(0.5, 1e-12));
 }
@@ -158,12 +157,8 @@ TEST_CASE("VoltageSource to ground only touches its one live node", "[components
 }
 
 TEST_CASE("CurrentSource injects its value directly into the RHS with no matrix contribution", "[components][isource]") {
-    // "I1 p=0 n=1 3mA": SPICE's convention is that 3mA flows from p through
-    // the source to n, so the source draws 3mA out of node 0 and delivers
-    // it into node 1. KCL row convention (b = current injected into the
-    // node): b[0] = -3mA, b[1] = +3mA. See DESIGN_DECISIONS.md #19 -- this
-    // test originally asserted the opposite signs, pinning a reversed
-    // source that nothing else caught.
+    // "I1 0 1 3mA": 3mA leaves node 0 and enters node 1, so b[0] = -3mA and
+    // b[1] = +3mA. (This test used to expect the opposite, see #19.)
     CurrentSource i("I1", 0, 1, 0.003);
     Matrix<double> A(2, 2);
     std::vector<double> b(2, 0.0);

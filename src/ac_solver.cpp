@@ -18,26 +18,14 @@ std::vector<AcPoint> solve_ac_sweep(const Circuit& circuit, double start_hz, dou
     if (stop_hz < start_hz) throw std::invalid_argument("solve_ac_sweep: stop_hz must be >= start_hz");
     if (points_per_decade <= 0) throw std::invalid_argument("solve_ac_sweep: points_per_decade must be positive");
     if (circuit.has_nonlinear()) {
-        // Standard SPICE .AC behavior for a circuit with a nonlinear
-        // device: compute a DC operating point first, then linearize each
-        // nonlinear component around that bias point for the whole sweep.
-        // solve_dc() already leaves every nonlinear component's guess
-        // state (Diode::guess_voltage, Bjt::guess_vbe/guess_vbc) converged
-        // when it returns normally -- stamp_ac() was written from the
-        // start to read that same state (see component.cpp), so the only
-        // piece that was ever missing was this call. If the circuit has no
-        // sensible DC operating point (a diode with no current-limiting
-        // path, say), solve_dc() throws its own clear error here, which is
-        // the right outcome: there's no bias point to linearize around
-        // either. See DESIGN_DECISIONS.md #16.
+        // Find the DC bias point first. This leaves each diode/BJT's guess
+        // at the operating point, which stamp_ac() linearizes around.
         solve_dc(circuit);
     }
 
     std::vector<AcPoint> points;
     if (start_hz == stop_hz) {
-        // Degenerate single-point "sweep"; still go through the normal path
-        // below by giving it one decade's worth of denominator so the loop
-        // below emits exactly one point.
+        // single point, the normal path below handles it
     }
 
     double decades = std::log10(stop_hz / start_hz);

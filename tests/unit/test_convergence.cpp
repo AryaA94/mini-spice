@@ -1,8 +1,5 @@
-// Runs the same RC circuit at several halved step sizes and checks the
-// error at a fixed evaluation time roughly halves each time -- the
-// signature of a first-order method (backward Euler). This is the test
-// that would catch an integration scheme that "looks right" on a single
-// plot but has the wrong convergence order.
+// Halve dt a few times and check the error halves too, i.e. backward Euler
+// really is first order.
 #include <cmath>
 #include <vector>
 
@@ -24,13 +21,9 @@ TEST_CASE("Backward-Euler transient integration converges at first order", "[con
     std::vector<double> errors;
 
     for (double dt : dts) {
-        // A fresh Circuit (and therefore fresh, IC-initialized component
-        // state) per run: reactive components carry mutable history that
-        // solve_transient advances in place -- reusing one Circuit across
-        // several solve_transient() calls continues from wherever the
-        // previous run left off rather than restarting at t=0 (useful for
-        // deliberately extending a simulation, see DESIGN_DECISIONS.md, but
-        // wrong here where each dt needs its own independent run).
+        // Re-parse every time: caps/inductors keep their state between runs,
+        // so reusing the Circuit would continue from the last run (this bit
+        // me once, see DESIGN_DECISIONS.md #8).
         auto circuit = Circuit::parse(netlist_text);
         auto points = solve_transient(circuit, dt, eval_time);
         double sim = node_voltage(circuit, points.back().solution, "out");
@@ -38,10 +31,7 @@ TEST_CASE("Backward-Euler transient integration converges at first order", "[con
         errors.push_back(std::abs(sim - analytic));
     }
 
-    // Each halving of dt should roughly halve the error (ratio near 2.0).
-    // We allow a generous band [1.5, 2.5] since this is a numerical, not
-    // exact, convergence rate, and floating-point/step-count effects add
-    // a little noise near machine precision at the smallest dt.
+    // ratio should be about 2; allow 1.5 to 2.5
     for (std::size_t i = 1; i < errors.size(); ++i) {
         REQUIRE(errors[i - 1] > 1e-9);  // sanity: error shouldn't have vanished already
         double ratio = errors[i - 1] / errors[i];

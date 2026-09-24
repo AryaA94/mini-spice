@@ -5,9 +5,8 @@
 //   minispice tran <netlist> --dt <seconds> --stop <seconds> [--csv <path>]
 //   minispice ac <netlist> --start <hz> --stop <hz> --ppd <points_per_decade> [--csv <path>]
 //
-// `dc` prints a table to stdout. `tran` and `ac` print a summary and, with
-// --csv, write every node voltage (and voltage-source current, for tran) to
-// a CSV file that tools/plot_results.py turns into the plots in examples/.
+// dc prints the results. tran and ac print a summary, and --csv writes the
+// full results (tools/plot_results.py makes the plots from these).
 
 #include <algorithm>
 #include <cmath>
@@ -36,8 +35,7 @@ void print_usage() {
               << "  minispice ac <netlist> --start <hz> --stop <hz> --ppd <points_per_decade> [--csv <path>]\n";
 }
 
-// Extremely small flag parser: looks for "--name value" pairs in argv.
-// Good enough for a CLI with five total flags across two subcommands.
+// Tiny "--name value" flag lookup, enough for a handful of flags.
 std::string get_flag(const std::vector<std::string>& args, const std::string& flag, const std::string& fallback = "") {
     for (std::size_t i = 0; i + 1 < args.size(); ++i) {
         if (args[i] == flag) return args[i + 1];

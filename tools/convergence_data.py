@@ -3,13 +3,9 @@
 convergence_data.py -- drives the error-vs-timestep convergence plot
 (examples/07_convergence/plot.png).
 
-Runs examples/07_convergence/circuit.cir through the built `minispice` CLI
-at several halved step sizes, measures the error against the closed-form RC
-solution at a fixed evaluation time, and hands the (dt, error) table to
-plot_results.py's `convergence` subcommand. This is the script-level
-counterpart of tests/unit/test_convergence.cpp, which asserts the same
-halving behavior as a pass/fail unit test; this one exists to draw the
-picture for the README.
+Runs the RC circuit at several halved step sizes, measures the error vs.
+the exact solution, and passes the table to plot_results.py. (The pass/fail
+version of this is tests/unit/test_convergence.cpp.)
 """
 import csv
 import math
