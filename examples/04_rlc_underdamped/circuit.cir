@@ -1,0 +1,7 @@
+* Series RLC step response, underdamped (R small relative to critical
+* damping). omega0 = 1/sqrt(LC) = 316.23 rad/s, alpha = R/(2L) = 250,
+* so alpha < omega0 -> oscillatory ringing on the way to the 5V steady state.
+V1 in 0 DC 5
+R1 in a 50
+L1 a out 10m
+C1 out 0 1u

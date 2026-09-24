@@ -1,0 +1,8 @@
+* Balanced Wheatstone bridge: R1*R4 == R2*R3 (1k*4k == 2k*2k), so no
+* current flows through the bridge resistor Rg regardless of its value.
+V1 top 0 DC 9
+R1 top a 1k
+R2 a 0 2k
+R3 top b 2k
+R4 b 0 4k
+Rg a b 500

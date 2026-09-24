@@ -1,0 +1,7 @@
+* Diode-resistor DC operating point. Newton-Raphson solves the nonlinear
+* Shockley equation I(V) = Is*(exp(V/(N*Vt)) - 1) simultaneously with the
+* rest of the circuit; V(a) settles at the diode's forward voltage drop
+* rather than the plain resistive-divider answer a linear solver would give.
+V1 in 0 DC 5
+R1 in a 1k
+D1 a 0

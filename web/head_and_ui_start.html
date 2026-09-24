@@ -1,0 +1,243 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>mini-spice — interactive circuit simulator</title>
+<style>
+:root{
+  color-scheme: light;
+  box-sizing:border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+html{ scroll-padding-top: env(safe-area-inset-top, 0px); }
+*{ box-sizing: border-box; }
+
+:root{
+  --bg:#f4f5f3; --surface:#ffffff; --surface-2:#eceeea; --ink:#171a17; --ink-dim:#5c655d;
+  --border:#d9dcd5; --accent:#1f5eff; --accent-ink:#ffffff; --accent-soft:#e6ecff;
+  --danger:#c22; --danger-soft:#fde8e8;
+  --trace1:#1f77b4; --trace2:#d62728; --trace3:#2ca02c; --trace4:#d97706; --trace5:#7c3aed; --trace6:#0891b2;
+  --shadow: 0 1px 2px rgba(20,30,24,.06), 0 8px 24px rgba(20,30,24,.06);
+  --radius: 12px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1210; --surface:#171b18; --surface-2:#1d221e; --ink:#e9ece7; --ink-dim:#98a294;
+    --border:#2b322c; --accent:#5b8dff; --accent-ink:#08130e; --accent-soft:#16213a;
+    --danger:#ff6b6b; --danger-soft:#2a1414;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 28px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1210; --surface:#171b18; --surface-2:#1d221e; --ink:#e9ece7; --ink-dim:#98a294;
+  --border:#2b322c; --accent:#5b8dff; --accent-ink:#08130e; --accent-soft:#16213a;
+  --danger:#ff6b6b; --danger-soft:#2a1414;
+  --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 28px rgba(0,0,0,.4);
+}
+
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Inter", system-ui, -apple-system, sans-serif;
+  padding: clamp(18px,4vw,40px) 16px;
+}
+.mono{ font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, monospace; }
+.page{ max-width: 920px; margin: 0 auto; display:flex; flex-direction:column; gap:22px; }
+
+.eyebrow{
+  font-family:"IBM Plex Mono", monospace; font-size:12px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--accent); display:flex; align-items:center; gap:8px;
+}
+.eyebrow::before{ content:""; width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+h1{ margin:6px 0 4px; font-size:clamp(24px,4.5vw,32px); letter-spacing:-.01em; }
+.dek{ margin:0; color:var(--ink-dim); font-size:14.5px; line-height:1.6; max-width:64ch; }
+.dek code{ font-family:"IBM Plex Mono",monospace; background:var(--surface-2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:.92em; }
+
+.card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:18px 20px; }
+.card h2{ margin:0 0 4px; font-size:15px; }
+.card .sub{ margin:0 0 14px; color:var(--ink-dim); font-size:13px; }
+
+.presets{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+.chip{
+  font-family:"IBM Plex Mono",monospace; font-size:12.5px; padding:6px 12px; border-radius:999px;
+  border:1px solid var(--border); background:var(--surface-2); color:var(--ink); cursor:pointer;
+}
+.chip:hover{ border-color:var(--accent); color:var(--accent); }
+
+table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+th{ text-align:left; font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-dim); padding:6px 8px; border-bottom:1px solid var(--border); }
+td{ padding:7px 8px; border-bottom:1px solid var(--border); vertical-align:middle; }
+tr:last-child td{ border-bottom:none; }
+.empty-row td{ color:var(--ink-dim); font-style:italic; text-align:center; padding:18px; }
+
+.row-del{ background:none; border:1px solid var(--border); color:var(--ink-dim); border-radius:6px; width:26px; height:26px; cursor:pointer; line-height:1; }
+.row-del:hover{ border-color:var(--danger); color:var(--danger); }
+
+.addform{ display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin-top:14px; padding-top:14px; border-top:1px dashed var(--border); }
+.field{ display:flex; flex-direction:column; gap:4px; }
+.field label{ font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-dim); }
+input, select{
+  font: inherit; font-size:13.5px; padding:7px 9px; border-radius:7px; border:1px solid var(--border);
+  background:var(--surface); color:var(--ink); width:100%;
+}
+input:focus, select:focus{ outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
+.w-sm{ width:78px; } .w-md{ width:100px; }
+.btn{
+  font-family:"IBM Plex Mono",monospace; font-size:13px; font-weight:600; padding:8px 16px; border-radius:8px;
+  border:1px solid var(--accent); background:var(--accent); color:var(--accent-ink); cursor:pointer;
+}
+.btn:hover{ filter:brightness(1.08); }
+.btn.secondary{ background:var(--surface); color:var(--ink); border-color:var(--border); font-weight:500; }
+.btn.secondary:hover{ border-color:var(--accent); color:var(--accent); }
+.btn:disabled{ opacity:.5; cursor:not-allowed; }
+
+.tabs{ display:flex; gap:6px; margin-bottom:14px; }
+.tab{
+  font-family:"IBM Plex Mono",monospace; font-size:12.5px; padding:7px 14px; border-radius:8px;
+  border:1px solid var(--border); background:var(--surface-2); color:var(--ink-dim); cursor:pointer;
+}
+.tab.active{ background:var(--accent-soft); border-color:var(--accent); color:var(--accent); font-weight:600; }
+.params{ display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:14px; }
+.run-row{ display:flex; align-items:center; gap:12px; }
+
+.error-banner{
+  display:none; background:var(--danger-soft); border:1px solid var(--danger); color:var(--danger);
+  border-radius:8px; padding:10px 12px; font-size:13px; margin-top:12px;
+}
+.error-banner.show{ display:block; }
+
+.results{ margin-top:6px; }
+.results.hidden{ display:none; }
+.legend{ display:flex; flex-wrap:wrap; gap:12px; margin:10px 0 4px; font-family:"IBM Plex Mono",monospace; font-size:12px; }
+.legend span{ display:inline-flex; align-items:center; gap:6px; }
+.swatch{ width:12px; height:2.5px; border-radius:1px; display:inline-block; }
+
+.stat-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-top:12px; }
+.stat{ background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+.stat .label{ font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-dim); }
+.stat .value{ font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; font-size:16px; color:var(--accent); margin-top:2px; }
+
+.raw-toggle{ font-size:12px; color:var(--ink-dim); background:none; border:none; text-decoration:underline; cursor:pointer; padding:0; margin-top:10px; }
+textarea.raw{ display:none; width:100%; height:140px; margin-top:8px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--ink); }
+textarea.raw.show{ display:block; }
+
+svg.chart{ width:100%; height:auto; display:block; background:var(--surface); border-radius:8px; }
+.axis-label{ font-family:"IBM Plex Mono",monospace; font-size:10px; fill:var(--ink-dim); }
+.grid-line{ stroke:var(--border); stroke-width:1; }
+.chart-title{ font-family:"IBM Plex Mono",monospace; font-size:11px; fill:var(--ink-dim); }
+
+footer{ color:var(--ink-dim); font-size:12.5px; line-height:1.6; border-top:1px solid var(--border); padding-top:12px; }
+footer code{ font-family:"IBM Plex Mono",monospace; background:var(--surface-2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
+
+@media (max-width:520px){
+  .addform{ flex-direction:column; align-items:stretch; }
+  .w-sm, .w-md{ width:100%; }
+  table, thead, tbody, th, td, tr{ display:block; }
+  thead{ display:none; }
+  tr{ border-bottom:1px solid var(--border); padding:8px 0; }
+  td{ border-bottom:none; padding:3px 4px; display:flex; justify-content:space-between; gap:8px; }
+  td::before{ content: attr(data-label); font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:var(--ink-dim); text-transform:uppercase; }
+}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="page">
+
+  <div>
+    <div class="eyebrow">mini-spice &middot; interactive</div>
+    <h1>Build a circuit, run it, see the graph</h1>
+    <p class="dek">
+      Add components below (or load a preset), pick DC / Transient / AC, hit Run.
+      Your actual C++ solver, compiled to WebAssembly, runs directly in this page &mdash;
+      not a JavaScript rewrite, the same compiled code as the CLI. No install, no compiler.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>1 &middot; Circuit</h2>
+    <p class="sub">Load a preset to start fast, or add rows yourself. Node "0" (or "gnd") is always ground.</p>
+    <div class="presets" id="presets"></div>
+
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Type</th><th>Nodes</th><th>Value</th><th>Extra</th><th></th></tr>
+      </thead>
+      <tbody id="componentBody"></tbody>
+    </table>
+
+    <div class="addform">
+      <div class="field" id="f-type-wrap"><label>Type</label>
+        <select id="f-type" class="w-sm">
+          <option value="R">R — resistor</option>
+          <option value="C">C — capacitor</option>
+          <option value="L">L — inductor</option>
+          <option value="V">V — voltage src</option>
+          <option value="I">I — current src</option>
+          <option value="D">D — diode</option>
+          <option value="Q">Q — NPN transistor</option>
+          <option value="E">E — VCVS (volt-ctrl volt src)</option>
+          <option value="G">G — VCCS (volt-ctrl cur src)</option>
+        </select>
+      </div>
+      <div class="field"><label id="f-name-label">Name</label><input id="f-name" class="w-sm" placeholder="R1"></div>
+      <div class="field"><label id="f-nodeA-label">Node A</label><input id="f-nodeA" class="w-sm" placeholder="in"></div>
+      <div class="field"><label id="f-nodeB-label">Node B</label><input id="f-nodeB" class="w-sm" placeholder="out"></div>
+      <div class="field" id="f-nodeC-wrap" style="display:none"><label id="f-nodeC-label">Node C</label><input id="f-nodeC" class="w-sm" placeholder="0"></div>
+      <div class="field" id="f-nodeD-wrap" style="display:none"><label id="f-nodeD-label">Node D</label><input id="f-nodeD" class="w-sm" placeholder="0"></div>
+      <div class="field" id="f-pnp-wrap" style="display:none"><label>&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:5px;font-family:inherit;font-size:13px;font-weight:400;text-transform:none;letter-spacing:normal;color:var(--ink);padding:7px 0;">
+          <input type="checkbox" id="f-pnp" style="width:auto;margin:0;"> PNP
+        </label>
+      </div>
+      <div class="field"><label id="f-value-label">Value</label><input id="f-value" class="w-md" placeholder="1k"></div>
+      <div class="field" id="f-extra1-wrap"><label id="f-extra1-label">IC</label><input id="f-extra1" class="w-sm" placeholder="0"></div>
+      <div class="field" id="f-extra2-wrap"><label id="f-extra2-label">AC phase</label><input id="f-extra2" class="w-sm" placeholder="0"></div>
+      <button class="btn" id="addBtn">+ Add</button>
+    </div>
+    <div class="error-banner" id="addError"></div>
+  </div>
+
+  <div class="card">
+    <h2>2 &middot; Analysis</h2>
+    <p class="sub">DC solves one operating point. Transient steps through time (backward Euler). AC sweeps frequency.</p>
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-mode="dc">DC</button>
+      <button class="tab" data-mode="tran">Transient</button>
+      <button class="tab" data-mode="ac">AC</button>
+    </div>
+
+    <div class="params" id="params-dc"></div>
+    <div class="params" id="params-tran" style="display:none">
+      <div class="field"><label>dt (s)</label><input id="tran-dt" class="w-md" value="1e-5"></div>
+      <div class="field"><label>stop (s)</label><input id="tran-stop" class="w-md" value="5e-3"></div>
+    </div>
+    <div class="params" id="params-ac" style="display:none">
+      <div class="field"><label>start (Hz)</label><input id="ac-start" class="w-md" value="10"></div>
+      <div class="field"><label>stop (Hz)</label><input id="ac-stop" class="w-md" value="1e6"></div>
+      <div class="field"><label>points/decade</label><input id="ac-ppd" class="w-sm" value="20"></div>
+    </div>
+
+    <div class="run-row">
+      <button class="btn" id="runBtn" disabled>Loading engine&hellip;</button>
+      <span class="sub" id="runSummary" style="margin:0"></span>
+    </div>
+    <div class="error-banner" id="runError"></div>
+  </div>
+
+  <div class="card results hidden" id="resultsCard">
+    <h2>3 &middot; Results</h2>
+    <div id="resultsBody"></div>
+    <button class="raw-toggle" id="rawToggle">show raw data</button>
+    <textarea class="raw" id="rawData" readonly></textarea>
+  </div>
+
+  <footer>
+    <div>Compiles the real C++ engine from the repo (src/component.cpp, netlist.cpp, dc_solver.cpp, transient_solver.cpp, ac_solver.cpp) to WebAssembly and runs it directly in your browser &mdash; not a rewrite, the same compiled Gaussian-elimination MNA solver the CLI uses. Your circuit is saved in this browser only; nothing is sent anywhere.</div>
+  </footer>
+</div>
+
+<script>

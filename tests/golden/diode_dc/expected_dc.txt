@@ -1,0 +1,5 @@
+Node voltages:
+  V(in) = 5.000000 V
+  V(a) = 0.692888 V
+Voltage source currents:
+  I(V1) = -0.004307 A

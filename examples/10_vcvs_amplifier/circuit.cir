@@ -1,0 +1,6 @@
+* Ideal voltage-controlled voltage source (VCVS): ideal 3x amplifier.
+* V(out) = gain * V(ctrl) = 3 * 2V = 6V exactly, independent of Rload
+* (an ideal voltage source, just like V, only linearly controlled).
+V1 in 0 DC 2
+E1 out 0 in 0 3
+Rload out 0 1k

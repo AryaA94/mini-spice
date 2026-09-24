@@ -1,0 +1,7 @@
+* Repeated PULSE source through an RC low-pass filter. Unlike the earlier
+* step-response examples, this needs an actual time-varying source (not
+* just a reactive element starting away from steady state): a 5V pulse,
+* 2ms wide, repeating every 4ms, first appearing at t=1ms.
+V1 in 0 PULSE(0 5 1m 0.1m 0.1m 2m 4m)
+R1 in out 1k
+C1 out 0 1u

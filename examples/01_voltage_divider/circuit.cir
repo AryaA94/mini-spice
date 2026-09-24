@@ -1,0 +1,5 @@
+* Two-resistor voltage divider.
+* Textbook check: V(out) = Vs * R2/(R1+R2) = 10 * 1k/(1k+1k) = 5V exactly.
+V1 in 0 DC 10
+R1 in out 1k
+R2 out 0 1k

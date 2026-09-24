@@ -1,0 +1,5 @@
+Node voltages:
+  V(in) = 2.000000 V
+  V(out) = 6.000000 V
+Voltage source currents:
+  I(V1) = 0.000000 A

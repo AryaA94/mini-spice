@@ -1,0 +1,6 @@
+* A 500Hz sine source (1V offset, 2V amplitude) through the same RC filter
+* used in the Bode-plot example -- corner frequency ~1591Hz, so 500Hz
+* passes through close to unattenuated, just visibly smoothed/delayed.
+V1 in 0 SIN(1 2 500 0 0)
+R1 in out 1k
+C1 out 0 100n

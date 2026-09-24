@@ -1,0 +1,7 @@
+* Same L and C as 04_rlc_underdamped, but R increased well past the
+* critical-damping resistance (2*sqrt(L/C) = 200 ohm) -> no ringing,
+* a slow, monotonic approach to the 5V steady state.
+V1 in 0 DC 5
+R1 in a 2k
+L1 a out 10m
+C1 out 0 1u

@@ -1,0 +1,6 @@
+Node voltages:
+  V(top) = 9.000000 V
+  V(a) = 6.000000 V
+  V(b) = 6.000000 V
+Voltage source currents:
+  I(V1) = -0.004500 A

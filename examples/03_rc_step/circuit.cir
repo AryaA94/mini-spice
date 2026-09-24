@@ -1,0 +1,7 @@
+* Series RC step response. V1 is DC (always 5V); the "step" comes from C1
+* starting at its default initial condition (0V) rather than a switching
+* source -- the standard way to pose this experiment in simulation.
+* tau = R*C = 1k * 1u = 1ms
+V1 in 0 DC 5
+R1 in out 1k
+C1 out 0 1u

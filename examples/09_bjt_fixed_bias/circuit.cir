@@ -1,0 +1,8 @@
+* NPN fixed-bias circuit. Newton-Raphson solves the Ebers-Moll equations
+* (two coupled diode junctions plus BF/BR gain terms) simultaneously with
+* the rest of the circuit. IC/IB should land close to BF=100.
+VBB base 0 DC 5
+RB base b1 100k
+VCC vcc 0 DC 10
+RC vcc col 1k
+Q1 col b1 0 IS=1e-16 BF=100 BR=1

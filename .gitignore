@@ -1,0 +1,34 @@
+# Build directories
+build/
+build-*/
+out/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+_deps/
+
+# Coverage
+*.gcda
+*.gcno
+*.gcov
+coverage.xml
+coverage.html
+coverage/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Scratch files the tools/ scripts create and clean up themselves, in case
+# a run is interrupted before cleanup
+tools/_tmp_*
+examples/**/_tmp_*
+/tmp/_ns_*
+/tmp/_ms_*

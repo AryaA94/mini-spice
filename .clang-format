@@ -1,0 +1,19 @@
+BasedOnStyle: Google
+ColumnLimit: 130
+IndentWidth: 4
+AccessModifierOffset: -2
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+BinPackArguments: true
+BinPackParameters: true
+DerivePointerAlignment: false
+PointerAlignment: Left
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<catch2/'
+    Priority: 1
+  - Regex: '^"minispice/'
+    Priority: 2
+  - Regex: '^<'
+    Priority: 0

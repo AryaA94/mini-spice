@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: build + test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then sudo apt-get update && sudo apt-get install -y ninja-build; fi
+          if [ "${{ runner.os }}" = "macOS" ]; then brew install ninja; fi
+        shell: bash
+
+      - name: Configure (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: cmake --preset default
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build/default -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build
+        run: cmake --build build/default --config RelWithDebInfo -j 4
+
+      - name: Test
+        working-directory: build/default
+        run: ctest --output-on-failure --build-config RelWithDebInfo
+
+  sanitize:
+    name: ASan + UBSan (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: cmake --preset sanitize
+      - name: Build
+        run: cmake --build build/sanitize -j 4
+      - name: Test under ASan/UBSan
+        working-directory: build/sanitize
+        run: ./minispice_tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1,halt_on_error=1
+
+  coverage:
+    name: Coverage (gcov -> Codecov)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja + gcovr
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          pip install gcovr
+      - name: Configure with coverage instrumentation
+        run: >
+          cmake -S . -B build/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="--coverage -O0" -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+      - name: Build
+        run: cmake --build build/coverage -j 4
+      - name: Run tests
+        working-directory: build/coverage
+        run: ./minispice_tests
+      - name: Generate coverage XML
+        run: >
+          gcovr --root . --filter 'src/.*' --filter 'include/.*'
+          -object-directory build/coverage --exclude '.*_deps.*'
+          --gcov-ignore-errors=all --xml-pretty -o coverage.xml
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false

@@ -1,0 +1,8 @@
+Node voltages:
+  V(base) = 5.000000 V
+  V(b1) = 0.811279 V
+  V(vcc) = 10.000000 V
+  V(col) = 5.811279 V
+Voltage source currents:
+  I(VBB) = -0.000042 A
+  I(VCC) = -0.004189 A

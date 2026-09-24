@@ -1,0 +1,5 @@
+* Golden regression fixture: underdamped series RLC step response
+V1 in 0 DC 1
+R1 in a 1
+L1 a out 1
+C1 out 0 0.25
