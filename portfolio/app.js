@@ -3,6 +3,8 @@
 
   const PROJECTS = window.PROJECTS || [];
   const PROFILE = window.PROFILE || {};
+  // only allow http(s), mailto and relative links from the data file
+  const safeUrl = (u) => (/^(https?:|mailto:|#|\.?\/|[\w-]+\.\w+)/i.test(String(u || "").trim()) && !/^\s*(javascript|data|vbscript):/i.test(u) ? u : "#");
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -120,7 +122,7 @@
     return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="cover" role="img" aria-label="${esc(p.title)}">${s}</svg>`;
   }
 
-  const coverHTML = (p) => (p.cover ? `<img src="${esc(p.cover)}" alt="${esc(p.title)}" loading="lazy">` : p.type === "hardware" ? hardwareCover(p) : softwareCover(p));
+  const coverHTML = (p) => (p.cover ? `<img src="${esc(safeUrl(p.cover))}" alt="${esc(p.title)}" loading="lazy">` : p.type === "hardware" ? hardwareCover(p) : softwareCover(p));
 
   /* ---------- profile ---------- */
   const name = PROFILE.name || "Your Name";
@@ -150,9 +152,9 @@
 
   const email = PROFILE.email || "";
   const ce = $("#contact-email");
-  ce.textContent = email ? email : "Say hello";
-  ce.href = email ? `mailto:${email}` : "#";
-  $("#contact-links").innerHTML = (PROFILE.links || []).map((l) => `<li><a href="${esc(l.href)}" target="_blank" rel="noopener" data-magnetic>${esc(l.label)} ↗</a></li>`).join("");
+  ce.textContent = email || "Say hello";
+  ce.href = email ? `mailto:${email}` : (PROFILE.links || [])[0]?.href || "#";
+  $("#contact-links").innerHTML = (PROFILE.links || []).map((l) => `<li><a href="${esc(safeUrl(l.href))}" target="_blank" rel="noopener noreferrer" data-magnetic>${esc(l.label)} ↗</a></li>`).join("");
   $("#contact-loc").textContent = PROFILE.location ? `Based in ${PROFILE.location}` : "";
 
   /* ---------- project cards ---------- */
@@ -164,7 +166,7 @@
         <div class="card-glare"></div>
         <div class="card-chip">
           <span class="chip" style="--c:${esc(p.accent || "")}"><i></i>${esc(p.type)}</span>
-          ${p.placeholder ? '<span class="chip sample">Sample</span>' : ""}
+          ${p.placeholder ? '<span class="chip sample">Coming soon</span>' : ""}
         </div>
         <span class="card-open" aria-hidden="true">→</span>
       </div>
@@ -491,7 +493,7 @@
     const i = list.findIndex((x) => x.slug === p.slug), next = list[(i + 1) % list.length];
     $("#detail-crumb").textContent = `${p.type} / ${String(PROJECTS.indexOf(p) + 1).padStart(2, "0")} — ${p.title}`;
     const items = [
-      `<div class="d-chips"><span class="chip" style="--c:${esc(p.accent || "")}"><i></i>${esc(p.type)}</span><span class="chip">${esc(p.year)}</span>${p.status ? `<span class="chip">${esc(p.status)}</span>` : ""}${p.role ? `<span class="chip">${esc(p.role)}</span>` : ""}${p.placeholder ? '<span class="chip sample">Sample entry</span>' : ""}</div>`,
+      `<div class="d-chips"><span class="chip" style="--c:${esc(p.accent || "")}"><i></i>${esc(p.type)}</span><span class="chip">${esc(p.year)}</span>${p.status ? `<span class="chip">${esc(p.status)}</span>` : ""}${p.role ? `<span class="chip">${esc(p.role)}</span>` : ""}${p.placeholder ? '<span class="chip sample">Coming soon</span>' : ""}</div>`,
       `<h2 class="d-title" id="detail-title">${esc(p.title)}</h2>`,
       `<p class="d-tagline">${esc(p.tagline)}</p>`,
       `<div class="d-cover">${coverHTML(p)}</div>`,
@@ -499,7 +501,7 @@
         <div>
           <p class="d-summary">${esc(p.summary)}</p>
           ${(p.sections || []).map((s) => `<div class="d-section"><h3>${esc(s.heading)}</h3><p>${s.body}</p></div>`).join("")}
-          ${(p.links || []).length ? `<div class="d-links">${p.links.map((l, k) => `<a class="btn ${k ? "btn-ghost" : "btn-solid"}" href="${esc(l.href)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`).join("")}</div>` : ""}
+          ${(p.links || []).length ? `<div class="d-links">${p.links.map((l, k) => `<a class="btn ${k ? "btn-ghost" : "btn-solid"}" href="${esc(safeUrl(l.href))}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("")}</div>` : ""}
         </div>
         <aside class="datasheet">
           <div class="datasheet-head mono"><span>Datasheet</span><span>${esc(p.slug)}</span></div>
@@ -507,7 +509,7 @@
           ${(p.tags || []).length ? `<div class="d-tags">${p.tags.map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}
         </aside>
       </div>`,
-      (p.gallery || []).length ? `<div class="d-gallery">${p.gallery.map((g) => `<figure><img src="${esc(g.src)}" alt="${esc(g.caption || p.title)}" loading="lazy">${g.caption ? `<figcaption class="mono">${esc(g.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : "",
+      (p.gallery || []).length ? `<div class="d-gallery">${p.gallery.map((g) => `<figure><img src="${esc(safeUrl(g.src))}" alt="${esc(g.caption || p.title)}" loading="lazy">${g.caption ? `<figcaption class="mono">${esc(g.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : "",
       list.length > 1 ? `<a class="d-next" href="#/p/${esc(next.slug)}" data-swap><span class="mono muted">Next project →</span><span>${esc(next.title)}</span></a>` : "",
     ].filter(Boolean);
     body.classList.remove("show");
