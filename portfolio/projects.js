@@ -101,7 +101,7 @@ window.PROJECTS = [
 // About / contact details shown at the top and bottom of the page.
 window.PROFILE = {
   name: "Arya Ananda",
-  role: "Electrical hardware & software projects",
+  role: "Western Engineering student · hardware & software",
   location: "", // e.g. "Austin, TX"
   intro:
     "I design circuit boards and build the software tools around them, like a circuit simulator written from scratch in C++. This is a running log of what I've made.",
