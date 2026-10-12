@@ -141,7 +141,11 @@
     .map(([k, v]) => `<div><dt>${k}</dt><dd data-count-to="${typeof v === "number" ? v : ""}">${v}</dd></div>`).join("");
   $$("[data-count]").forEach((el) => (el.textContent = count(el.dataset.count)));
 
-  $("#about-lead").innerHTML = esc(PROFILE.intro || "").replace(/(circuit boards|firmware|software tools)/g, "<em>$1</em>");
+  const about = PROFILE.about || {};
+  $("#about-lead").innerHTML = about.lead || esc(PROFILE.intro || "");
+  $("#about-body").innerHTML = (about.paragraphs || []).map((t) => `<p>${esc(t)}</p>`).join("");
+  $("#about-now").innerHTML = (about.now || []).map((t) => `<li>${esc(t)}</li>`).join("");
+  $(".about-now").hidden = !(about.now || []).length;
   const topTags = (type) => {
     const m = new Map();
     PROJECTS.filter((p) => p.type === type).forEach((p) => (p.tags || []).forEach((t) => m.set(t, (m.get(t) || 0) + 1)));

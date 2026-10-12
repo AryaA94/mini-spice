@@ -57,58 +57,140 @@ window.PROJECTS = [
     accent: "#e8894a",
   },
 
-  // ---- Placeholder slots: replace these with your real projects ----
-
   {
-    slug: "hardware-project-1",
-    title: "Hardware project",
-    tagline: "Coming soon — details for this build are on the way.",
+    slug: "cnc-tool-wear",
+    title: "CNC tool-wear monitor",
+    tagline: "An ESP32 vibration sensor that predicts when a CNC cutting tool is wearing out.",
     type: "hardware",
     year: 2026,
-    status: "Coming soon",
-    tags: ["PCB", "Electronics"],
-    summary: "Write-up coming soon.",
-    specs: [["Status", "Write-up in progress"]],
-    sections: [
-      { heading: "Goal", body: "What problem this solves and why you built it." },
-      { heading: "Design", body: "Key design decisions: parts, layout, constraints." },
-      { heading: "Results", body: "Measurements, photos, what you'd change next time." },
+    status: "In progress · Phase 2",
+    role: "Hardware + firmware",
+    tags: ["ESP32", "FreeRTOS", "Accelerometer", "Embedded C++"],
+    summary:
+      "A small sensor package that clamps to a mill, listens to its vibration and flags a dull tool before it ruins a part. It samples an accelerometer at 800 Hz, extracts wear features in real time, shows tool health on an OLED and logs every session to an SD card.",
+    specs: [
+      ["MCU", "ESP32 DevKit (dual-core, FreeRTOS)"],
+      ["Sensor", "ADXL345 3-axis accelerometer, I²C"],
+      ["Sampling", "800 Hz, 512-sample windows"],
+      ["Features", "RMS (X/Y/Z), peak, crest factor, variance"],
+      ["Output", "SSD1306 OLED · green / red LEDs · SD card CSV log"],
+      ["Next", "On-device TFLite Micro classifier (Phase 4)"],
     ],
-    links: [],
+    sections: [
+      {
+        heading: "Why",
+        body: "Worn tools cut badly, chatter and break. Most small shops replace them on a schedule or by ear. I wanted something cheap that could tell from vibration alone when a tool is going.",
+      },
+      {
+        heading: "How it works",
+        body: "One FreeRTOS task samples the accelerometer and computes six statistical features per window; another drives the display. Crest factor turned out to be the most telling one: a worn edge makes sharp impulses that spike it even when overall vibration (RMS) stays low. Right now a threshold model sorts the tool into healthy / caution / worn.",
+      },
+      {
+        heading: "What's next",
+        body: "The SD logs are the training data. Phase 4 swaps the thresholds for a small neural network running on the ESP32 itself with TensorFlow Lite Micro.",
+      },
+    ],
+    links: [{ label: "Firmware on GitHub", href: "https://github.com/AryaA94/CNC-MACHINE-CODE" }],
     accent: "#4fb3a9",
-    placeholder: true,
   },
   {
-    slug: "software-project-1",
-    title: "Software project",
-    tagline: "Coming soon — details for this project are on the way.",
+    slug: "gcode-sim",
+    title: "gcode-sim",
+    tagline: "Check, time, cost and plan CNC milling programs in the browser.",
     type: "software",
     year: 2026,
-    status: "Coming soon",
-    tags: ["Code"],
-    summary: "Write-up coming soon.",
-    specs: [["Status", "Write-up in progress"]],
-    sections: [
-      { heading: "Goal", body: "What problem this solves and why you built it." },
-      { heading: "How it works", body: "Architecture, interesting problems, what you learned." },
+    status: "Shipped",
+    role: "Solo build",
+    tags: ["C++20", "WebAssembly", "CNC / G-code", "3D visualization"],
+    summary:
+      "Reads a G-code program before it goes to the machine and tells you what's wrong, how long it will take, what it will cost and what the finished part will weigh. Built for people who machine parts but don't have time to fight their software: Formula SAE teams, makerspaces and small shops.",
+    specs: [
+      ["Engine", "C++20, compiled to WebAssembly"],
+      ["Checks", "11 lint rules with line numbers"],
+      ["Timing", "Per-axis accel limits + look-ahead"],
+      ["Extras", "Drilling-program generator, setup sheets, job quotes"],
+      ["Tests", "132 test cases · 2,824 checks"],
+      ["Runs", "In the browser, offline, nothing to install"],
     ],
-    links: [],
-    accent: "#6f8ef0",
-    placeholder: true,
+    sections: [
+      {
+        heading: "Why I built it",
+        body: "On co-op I worked as a CAD/CAM programmer, writing and checking G-code for CNC mills every day. I wanted to understand what happens between \"export from CAM\" and \"the machine starts cutting\": how a controller catches a mistake, how it decides how long a job takes, how fast it can take a corner.",
+      },
+      {
+        heading: "What it does",
+        body: "Flags mistakes like a rapid move into the stock or a spindle speed too fast for the material, plays the toolpath back in 3D, breaks cycle time down by operation, and prints a setup sheet for the machinist. It can also write a full drilling-and-tapping program from a list of hole positions.",
+      },
+    ],
+    links: [
+      { label: "Open it", href: "https://aryaa94.github.io/G-Code/" },
+      { label: "Source on GitHub", href: "https://github.com/AryaA94/G-Code" },
+    ],
+    accent: "#d6b04a",
+  },
+  {
+    slug: "purple-plow",
+    title: "Purple Plow",
+    tagline: "An autonomous snow-clearing and salting robot for Western's campus walkways.",
+    type: "software",
+    year: 2026,
+    status: "Design project",
+    role: "ES1050 · Team 14",
+    tags: ["Java", "Simulation", "Dashboard UI", "Robotics"],
+    summary:
+      "Our first-year design team's concept for a robot that plows and salts campus paths on its own. I built the software side: a coverage simulator for the robot's sweep pattern, a battery and thermal model, and the operator dashboard for running it.",
+    specs: [
+      ["Course", "ES1050, Western Engineering"],
+      ["Coverage sim", "Java / Swing grid with pedestrians and obstacles"],
+      ["Battery model", "Peukert's law + cold-weather heater logic"],
+      ["Dashboard", "HTML/CSS/JS operator console"],
+    ],
+    sections: [
+      {
+        heading: "Salting simulator",
+        body: "A grid model of a campus sidewalk where the robot sweeps back and forth, salting snow tiles while avoiding pedestrians and obstacles, and tracks battery and salt-hopper levels as it goes.",
+      },
+      {
+        heading: "Battery manager",
+        body: "Lead-acid batteries lose capacity in the cold. The model drains the battery with Peukert's law and decides when it's worth spending current on a heater to win capacity back.",
+      },
+      {
+        heading: "Operator dashboard",
+        body: "A live console with routes across campus (UC → SEB, Alumni Hall, Middlesex), telemetry, a system log and a manual override when the robot gets boxed in.",
+      },
+    ],
+    links: [
+      { label: "Dashboard code", href: "https://github.com/AryaA94/Purple-Plow-Website-Draft-" },
+      { label: "Salting simulator", href: "https://github.com/AryaA94/Salting-Simulator" },
+      { label: "Battery manager", href: "https://github.com/AryaA94/Battery-Manager" },
+    ],
+    accent: "#8a5cd0",
   },
 ];
 
 // About / contact details shown at the top and bottom of the page.
 window.PROFILE = {
   name: "Arya Ananda",
-  role: "Western Engineering student · hardware & software",
-  location: "", // e.g. "Austin, TX"
+  role: "Electrical Engineering · Western University",
+  location: "London, Ontario",
   intro:
-    "I design circuit boards and build the software tools around them, like a circuit simulator written from scratch in C++. This is a running log of what I've made.",
-  email: "", // add the address you want public, e.g. "arya@example.com"
+    "Electrical engineering student at Western. I build hardware that senses things and software that makes sense of it. This is everything I've made so far.",
+  about: {
+    lead: "Hey, I'm Arya. I study <em>Electrical Engineering</em> at Western, and I can't leave a machine alone until I know how it works.",
+    paragraphs: [
+      "On co-op I wrote G-code for CNC mills every day. That turned into gcode-sim, then a sensor that listens to a mill to tell when its tool is wearing out. Most of my projects start like that: I use something, get curious about what's going on inside, and end up building my own version.",
+      "I like work that sits right between hardware and code: wiring up a microcontroller, then writing the firmware, the simulator and the dashboard around it.",
+    ],
+    now: [
+      "Studying Electrical Engineering at Western",
+      "Training an on-device model for the tool-wear monitor",
+      "Open to co-op and internship roles",
+    ],
+  },
+  email: "vj7386071@gmail.com",
   links: [
+    { label: "Email", href: "mailto:vj7386071@gmail.com" },
     { label: "GitHub", href: "https://github.com/AryaA94" },
-    // { label: "LinkedIn", href: "https://www.linkedin.com/in/..." },
-    // { label: "Résumé", href: "resume.pdf" },
+    // { label: "LinkedIn", href: "https://www.linkedin.com/in/YOUR-HANDLE" },
   ],
 };
