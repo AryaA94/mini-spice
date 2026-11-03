@@ -37,3 +37,4 @@ examples/**/_tmp_*
 web/_wasm_build/
 # npm install for web/tests
 web/tests/node_modules/
+.arena/
