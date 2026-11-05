@@ -1,0 +1,19 @@
+# Envi DAQ host configuration
+# Relative paths are resolved against this file's directory.
+
+data_dir = "data"                 # verified session files land in data/<logger_id>/
+database = "transfers.sqlite3"    # transfer history
+log_file = "envi-daq.log"         # optional; remove to log to the console only
+
+[retry]
+max_attempts = 5      # per session, per sync run
+base_delay_s = 2.0    # doubles each retry: 2, 4, 8, 16 ...
+max_delay_s = 60.0
+jitter = 0.25
+
+# One [[logger]] block per field logger. On the logger's own access point the
+# address is usually http://192.168.4.1; on site Wi-Fi use its DHCP reservation.
+[[logger]]
+name = "sim-01"
+url = "http://127.0.0.1:8080"
+timeout_s = 10

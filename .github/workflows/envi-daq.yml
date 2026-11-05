@@ -1,0 +1,28 @@
+name: envi-daq
+
+on:
+  push:
+    branches: [main]
+    paths: ["envi-daq/**", ".github/workflows/envi-daq.yml"]
+  pull_request:
+    paths: ["envi-daq/**", ".github/workflows/envi-daq.yml"]
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: envi-daq
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v
+      - run: pip install . && envi-daq --version

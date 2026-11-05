@@ -37,3 +37,11 @@ examples/**/_tmp_*
 web/_wasm_build/
 # npm install for web/tests
 web/tests/node_modules/
+
+# envi-daq local runtime files
+envi-daq/config.toml
+envi-daq/data/
+envi-daq/*.sqlite3*
+envi-daq/*.log
+__pycache__/
+*.egg-info/
