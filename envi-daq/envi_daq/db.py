@@ -67,6 +67,20 @@ MIGRATIONS = [
     CREATE INDEX ix_transfers_session ON transfers(logger_id, session_id);
     CREATE INDEX ix_sessions_status ON sessions(status);
     """,
+    # v2: Wi-Fi link health, one row per contact attempt with a logger
+    """
+    CREATE TABLE link_samples (
+        sample_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+        logger_name  TEXT NOT NULL,
+        logger_id    TEXT,
+        sampled_at   TEXT NOT NULL,
+        reachable    INTEGER NOT NULL,
+        rssi_dbm     INTEGER,
+        latency_ms   REAL,
+        error        TEXT
+    );
+    CREATE INDEX ix_link_samples ON link_samples(logger_name, sample_id);
+    """,
 ]
 
 
@@ -87,6 +101,8 @@ class Session:
     row_count: int | None = None
     attempts: int = 0
     last_error: str | None = None
+    first_seen: str | None = None
+    completed_at: str | None = None
 
 
 class HistoryDB:
@@ -116,8 +132,7 @@ class HistoryDB:
     def migrate(self) -> None:
         version = self.schema_version
         for i, script in enumerate(MIGRATIONS[version:], start=version + 1):
-            with self.conn:
-                self.conn.executescript(f"BEGIN; {script}; PRAGMA user_version = {i}; COMMIT;")
+            self.conn.executescript(f"BEGIN; {script}; PRAGMA user_version = {i}; COMMIT;")
 
     # -- loggers -----------------------------------------------------------
 
@@ -239,6 +254,45 @@ class HistoryDB:
             out.setdefault(r["logger_id"], {})[r["status"]] = r["n"]
         return out
 
+    # -- link health -------------------------------------------------------
+
+    def add_link_sample(self, logger_name: str, logger_id: str | None, reachable: bool,
+                        rssi_dbm: int | None = None, latency_ms: float | None = None,
+                        error: str | None = None) -> None:
+        with self.conn:
+            self.conn.execute(
+                """INSERT INTO link_samples (logger_name, logger_id, sampled_at, reachable,
+                     rssi_dbm, latency_ms, error) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (logger_name, logger_id, now(), int(reachable), rssi_dbm,
+                 None if latency_ms is None else round(latency_ms, 1), error),
+            )
+
+    def link_samples(self, logger_name: str, limit: int = 40) -> list[sqlite3.Row]:
+        """Most recent samples for one logger, oldest first."""
+        rows = self.conn.execute(
+            "SELECT * FROM link_samples WHERE logger_name = ? ORDER BY sample_id DESC LIMIT ?",
+            (logger_name, limit),
+        ).fetchall()
+        return rows[::-1]
+
+    def transfer_stats(self) -> dict[str, dict]:
+        """Per-logger attempt counts, success rate and effective throughput."""
+        out = {}
+        for r in self.conn.execute(
+            """SELECT logger_id, COUNT(*) attempts, SUM(outcome = 'ok') ok,
+                      SUM(outcome = 'retry') retries, SUM(bytes_received) bytes,
+                      SUM(duration_s) seconds, SUM(resumed_from > 0) resumes
+               FROM transfers WHERE finished_at IS NOT NULL GROUP BY logger_id"""
+        ):
+            secs = r["seconds"] or 0
+            out[r["logger_id"]] = {
+                "attempts": r["attempts"], "ok": r["ok"] or 0, "retries": r["retries"] or 0,
+                "resumes": r["resumes"] or 0, "bytes": r["bytes"] or 0,
+                "success_rate": round((r["ok"] or 0) / r["attempts"], 3) if r["attempts"] else None,
+                "throughput_bps": round((r["bytes"] or 0) / secs) if secs > 0 else None,
+            }
+        return out
+
     # -- transfers ---------------------------------------------------------
 
     def start_transfer(self, logger_id: str, session_id: str, resumed_from: int) -> tuple[int, int]:
@@ -302,4 +356,5 @@ def _session(r: sqlite3.Row) -> Session:
         size_bytes=r["size_bytes"], sha256=r["sha256"], status=r["status"],
         local_path=r["local_path"], row_count=r["row_count"],
         attempts=r["attempts"], last_error=r["last_error"],
+        first_seen=r["first_seen"], completed_at=r["completed_at"],
     )

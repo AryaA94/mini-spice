@@ -8,6 +8,8 @@
     envi-daq retry [--session ID]      re-queue failed sessions, then sync
     envi-daq verify                    re-check archived files against their checksums
     envi-daq export FILE.csv           dump sessions or transfers as CSV for analysis
+    envi-daq dashboard                 web dashboard: link health, sessions, live sync
+    envi-daq demo                      three simulated loggers + the dashboard, one command
     envi-daq simulate                  run a simulated logger for testing
 
 Exit codes: 0 all good, 1 some sessions failed / conflicts / bad files,
@@ -22,7 +24,8 @@ import json
 import logging
 import os
 import sys
-from contextlib import contextmanager
+import threading
+import webbrowser
 from dataclasses import asdict
 from pathlib import Path
 
@@ -30,6 +33,7 @@ from envi_daq import __version__
 from envi_daq import config as cfgm
 from envi_daq import db as dbm
 from envi_daq.downloader import Downloader, SyncReport, reverify_archive
+from envi_daq.locking import SyncLocked, sync_lock
 
 EXIT_OK, EXIT_FAILURES, EXIT_CONFIG, EXIT_UNREACHABLE, EXIT_LOCKED = 0, 1, 2, 3, 4
 
@@ -72,24 +76,6 @@ def _human(n: int | None) -> str:
             return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024
     return str(n)
-
-
-@contextmanager
-def _sync_lock(db_path: Path):
-    """Stop two syncs (e.g. overlapping cron runs) writing the same files."""
-    lock_path = db_path.with_name(db_path.name + ".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    f = open(lock_path, "a+")
-    try:
-        try:
-            import fcntl
-            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except ImportError:  # Windows
-            import msvcrt
-            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-        yield
-    finally:
-        f.close()
 
 
 class _Progress:
@@ -179,68 +165,70 @@ def cmd_status(args, cfg: cfgm.Config) -> int:
 
 
 def _print_report(rep: SyncReport) -> None:
+    print(rep.summary())
     if not rep.reachable:
-        print(f"{rep.logger_name}: UNREACHABLE -- {rep.error}")
         return
-    print(f"{rep.logger_name} ({rep.logger_id}): {rep.new_sessions} new, "
-          f"{len(rep.downloaded)} downloaded, {len(rep.failed)} failed, "
-          f"{rep.skipped_open} still recording" +
-          (f", {rep.conflicts} CONFLICT" if rep.conflicts else ""))
     for r in rep.failed:
         print(f"  {r.session_id}: {r.status} after {r.attempts} attempt(s): {r.error}")
 
 
-def cmd_sync(args, cfg: cfgm.Config) -> int:
+def cmd_sync(args, cfg: cfgm.Config, requeue: dict | None = None) -> int:
+    targets = _loggers(cfg, args.logger)
+    dry_run = getattr(args, "dry_run", False)
     try:
-        lock = _sync_lock(cfg.database)
-        lock.__enter__()
-    except OSError:
-        print("another envi-daq sync is already running", file=sys.stderr)
-        return EXIT_LOCKED
-    try:
-        with dbm.HistoryDB(cfg.database) as h:
+        with sync_lock(cfg.database), dbm.HistoryDB(cfg.database) as h:
             n = h.close_dangling_transfers()
             if n:
                 log.warning("closed %d transfer(s) left open by a previous interrupted run", n)
-            if getattr(args, "requeue", None):
-                lid, sid = args.requeue
-                k = h.requeue(logger_id=lid, session_id=sid,
-                              statuses=(dbm.FAILED, dbm.INVALID) if args.include_invalid
-                              else (dbm.FAILED,))
-                print(f"re-queued {k} session(s)")
+            if requeue is not None:
+                k = h.requeue(**requeue)
+                print(f"re-queued {k} session(s)", file=sys.stderr)
             dl = Downloader(h, cfg.data_dir, cfg.retry, cfg.chunk_size,
                             progress=_Progress(not args.json))
             only = set(args.session) if args.session else None
-            reports = [dl.sync(lg, only=only, dry_run=args.dry_run)
-                       for lg in _loggers(cfg, args.logger)]
-    finally:
-        lock.__exit__(None, None, None)
+            reports = [dl.sync(lg, only=only, dry_run=dry_run) for lg in targets]
+    except SyncLocked:
+        print("another envi-daq sync is already running", file=sys.stderr)
+        return EXIT_LOCKED
 
     if args.json:
         print(json.dumps([{**asdict(r), "ok": r.ok} for r in reports], indent=2))
     else:
         for r in reports:
-            if args.dry_run and r.reachable:
+            if dry_run and r.reachable:
                 print(f"{r.logger_name}: would download {len(r.results)}: "
                       + (", ".join(x.session_id for x in r.results) or "nothing"))
             else:
                 _print_report(r)
     if any(not r.reachable for r in reports):
         return EXIT_UNREACHABLE
-    if args.dry_run:
+    if dry_run:
         return EXIT_OK
     return EXIT_OK if all(r.ok for r in reports) else EXIT_FAILURES
 
 
 def cmd_retry(args, cfg: cfgm.Config) -> int:
+    statuses = (dbm.FAILED, dbm.INVALID) if args.include_invalid else (dbm.FAILED,)
     logger_id = None
     if args.logger:
+        cfg.logger(args.logger)  # validate the name
         with dbm.HistoryDB(cfg.database) as h:
             ids = [r["logger_id"] for r in h.loggers() if r["name"] == args.logger]
-        logger_id = ids[0] if ids else "__none__"
-    args.requeue = (logger_id, args.session[0] if args.session else None)
-    args.dry_run = False
-    return cmd_sync(args, cfg)
+        if not ids:
+            print(f"{args.logger} has never been synced; nothing to retry", file=sys.stderr)
+            return EXIT_OK
+        logger_id = ids[0]
+    sessions = args.session or [None]
+    rc = EXIT_OK
+    for i, sid in enumerate(sessions):
+        # Re-queue every requested session first, then one sync picks them all up.
+        if i < len(sessions) - 1:
+            with dbm.HistoryDB(cfg.database) as h:
+                h.requeue(logger_id=logger_id, session_id=sid, statuses=statuses)
+            continue
+        rc = cmd_sync(args, cfg, requeue={"logger_id": logger_id, "session_id": sid,
+                                          "statuses": statuses})
+    return rc
 
 
 def cmd_sessions(args, cfg: cfgm.Config) -> int:
@@ -317,14 +305,92 @@ def cmd_export(args, cfg: cfgm.Config) -> int:
     return EXIT_OK
 
 
+def cmd_dashboard(args, cfg: cfgm.Config) -> int:
+    from envi_daq.webapp import Dashboard
+
+    app = Dashboard(cfg, probe_interval_s=args.probe_interval)
+    httpd = app.serve(args.host, args.port)
+    url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '') else args.host}:{httpd.server_address[1]}"
+    print(f"envi-daq dashboard on {url}  ({len(cfg.loggers)} logger(s), Ctrl-C to stop)")
+    if args.host not in ("127.0.0.1", "localhost"):
+        print("warning: the dashboard has no login; only expose it on a trusted network",
+              file=sys.stderr)
+    threading.Thread(target=app.probe, daemon=True).start()
+    if args.open:
+        webbrowser.open(url)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        app.stop()
+        httpd.server_close()
+    return EXIT_OK
+
+
+def cmd_demo(args) -> int:
+    """Three simulated loggers (good / weak / bad Wi-Fi) behind the dashboard."""
+    from envi_daq.simulator import close_session, start_fleet
+    from envi_daq.webapp import Dashboard
+
+    workdir = Path(args.dir).expanduser().resolve()
+    workdir.mkdir(parents=True, exist_ok=True)
+    fleet = start_fleet()
+    loggers = "".join(
+        f'\n[[logger]]\nname = "{name}"\nurl = "{srv.url}"\ntimeout_s = 5\n' for name, srv in fleet)
+    loggers += '\n[[logger]]\nname = "barn-04"\nurl = "http://127.0.0.1:9"\ntimeout_s = 2\n'
+    conf = workdir / "config.toml"
+    conf.write_text(
+        "# Generated by `envi-daq demo`: simulated loggers on this machine.\n"
+        'data_dir = "data"\ndatabase = "transfers.sqlite3"\nlog_file = "envi-daq.log"\n'
+        "chunk_size = 8192\n\n"
+        "[retry]\nmax_attempts = 5\nbase_delay_s = 1.0\nmax_delay_s = 8.0\n" + loggers,
+        encoding="utf-8")
+    cfg = cfgm.load(conf)
+    _setup_logging(args.verbose, cfg.log_file)
+    app = Dashboard(cfg, probe_interval_s=args.probe_interval)
+    httpd = app.serve(args.host, args.port)
+    url = f"http://127.0.0.1:{httpd.server_address[1]}"
+    print(f"demo fleet: {', '.join(n for n, _ in fleet)} (simulated) + barn-04 (offline)")
+    print(f"files in {workdir}")
+    print(f"dashboard: {url}   (Ctrl-C to stop)")
+    threading.Thread(target=app.probe, daemon=True).start()
+
+    stop = threading.Event()
+
+    def new_sessions():
+        # Every so often a logger finishes a recording, like the real thing.
+        i = 0
+        while not stop.wait(args.session_every):
+            _, srv = fleet[i % len(fleet)]
+            close_session(srv.logger)
+            i += 1
+
+    if args.session_every > 0:
+        threading.Thread(target=new_sessions, daemon=True).start()
+    if args.open:
+        webbrowser.open(url)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop.set()
+        app.stop()
+        httpd.server_close()
+        for _, srv in fleet:
+            srv.stop()
+    return EXIT_OK
+
+
 def cmd_simulate(args) -> int:
     from envi_daq.simulator import Faults, SimLogger, SimServer
 
     lg = SimLogger.generate(
         n_sessions=args.sessions, samples=args.samples, seed=args.seed,
-        logger_id=args.logger_id,
+        logger_id=args.logger_id, rssi_dbm=args.rssi,
         faults=Faults(args.fail_rate, args.drop_rate, args.corrupt_rate, args.latency,
-                      ignore_range=args.ignore_range),
+                      ignore_range=args.ignore_range, bandwidth_bps=args.bandwidth),
     )
     srv = SimServer(lg, args.host, args.port)
     print(f"simulated logger {lg.logger_id} serving {len(lg.sessions)} sessions at {srv.url}")
@@ -405,12 +471,31 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--corrupt-rate", type=float, default=0.0)
     s.add_argument("--latency", type=float, default=0.0)
     s.add_argument("--ignore-range", action="store_true", help="emulate firmware without resume")
+    s.add_argument("--bandwidth", type=int, default=0, help="cap data rate, bytes/s (0 = none)")
+    s.add_argument("--rssi", type=int, default=-55, help="reported Wi-Fi signal, dBm")
+
+    s = sub.add_parser("dashboard", help="web dashboard for this config")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8800)
+    s.add_argument("--probe-interval", type=float, default=30.0,
+                   help="seconds between link checks (0 = off)")
+    s.add_argument("--open", action="store_true", help="open it in a browser")
+
+    s = sub.add_parser("demo", help="simulated logger fleet + dashboard (no config needed)")
+    s.add_argument("--dir", default="envi-daq-demo", help="where to put config, data and history")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8800)
+    s.add_argument("--probe-interval", type=float, default=6.0)
+    s.add_argument("--session-every", type=float, default=45.0,
+                   help="seconds between new sessions appearing on the loggers (0 = off)")
+    s.add_argument("--open", action="store_true", help="open it in a browser")
     return p
 
 
 COMMANDS = {
     "status": cmd_status, "sync": cmd_sync, "retry": cmd_retry, "sessions": cmd_sessions,
     "history": cmd_history, "verify": cmd_verify, "export": cmd_export,
+    "dashboard": cmd_dashboard,
 }
 
 
@@ -423,6 +508,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "simulate":
             _setup_logging(args.verbose, None)
             return cmd_simulate(args)
+        if args.cmd == "demo":
+            return cmd_demo(args)
         cfg = cfgm.load(args.config)
         _setup_logging(args.verbose, cfg.log_file)
         return COMMANDS[args.cmd](args, cfg)

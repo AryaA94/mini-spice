@@ -342,5 +342,125 @@ class TestCLI(unittest.TestCase):
             self.assertEqual(self.run_cli("-c", str(conf), "sync")[0], cli.EXIT_UNREACHABLE)
 
 
+
+class TestDashboard(unittest.TestCase):
+    def setUp(self):
+        import urllib.request
+        from envi_daq.webapp import Dashboard
+        self.urlopen = urllib.request.urlopen
+        self.Request = urllib.request.Request
+        self.tmp = tempfile.TemporaryDirectory()
+        d = Path(self.tmp.name)
+        self.sim = SimServer(SimLogger.generate(3, samples=100, seed=4, rssi_dbm=-66,
+                                                faults=Faults(drop_rate=0.3))).start()
+        self.cfg = cfgm.parse({
+            "data_dir": "data", "database": "h.sqlite3", "retry": {"base_delay_s": 0, "max_attempts": 10},
+            "logger": [{"name": "good", "url": self.sim.url},
+                       {"name": "gone", "url": "http://127.0.0.1:9", "timeout_s": 0.3}],
+        }, base=d)
+        self.app = Dashboard(self.cfg, probe_interval_s=0)
+        self.httpd = self.app.serve("127.0.0.1", 0)
+        import threading
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.sim.stop()
+        self.tmp.cleanup()
+
+    def call(self, method, path, body=None):
+        req = self.Request(self.base + path, method=method,
+                           data=json.dumps(body).encode() if body is not None else None,
+                           headers={"Content-Type": "application/json"})
+        try:
+            with self.urlopen(req, timeout=10) as r:
+                return r.status, json.loads(r.read())
+        except Exception as e:  # HTTPError
+            return e.code, json.loads(e.read())
+
+    def wait_sync(self):
+        for _ in range(200):
+            _, s = self.call("GET", "/api/sync")
+            if not s["running"]:
+                return s
+            import time
+            time.sleep(0.05)
+        self.fail("sync did not finish")
+
+    def test_page_and_state(self):
+        with self.urlopen(self.base + "/", timeout=5) as r:
+            self.assertIn(b"Field Link", r.read())
+        code, st = self.call("GET", "/api/state")
+        self.assertEqual(code, 200)
+        self.assertEqual([lg["name"] for lg in st["loggers"]], ["good", "gone"])
+
+    def test_probe_records_signal_and_registers_sessions(self):
+        code, r = self.call("POST", "/api/probe")
+        self.assertEqual(code, 200)
+        _, st = self.call("GET", "/api/state")
+        good, gone = st["loggers"]
+        self.assertTrue(good["online"])
+        self.assertTrue(-70 <= good["rssi_dbm"] <= -62)
+        self.assertFalse(gone["online"])
+        self.assertIn("cannot reach", gone["last_error"])
+        self.assertEqual(st["totals"]["pending"], 3)
+
+    def test_background_sync_streams_progress_and_rejects_overlap(self):
+        code, r = self.call("POST", "/api/sync", {})
+        self.assertEqual(code, 202)
+        code2, r2 = self.call("POST", "/api/sync", {})
+        s = self.wait_sync()
+        if code2 == 409:
+            self.assertIn("already running", r2["message"])
+        self.assertEqual(s["phase"], "done")
+        res = {x["logger"]: x for x in s["results"]}
+        self.assertEqual(res["good"]["downloaded"], 3)
+        self.assertFalse(res["gone"]["reachable"])
+        msgs = " ".join(ln["msg"] for ln in s["lines"])
+        self.assertIn("verified", msgs)
+        _, st = self.call("GET", "/api/state")
+        self.assertEqual(st["totals"]["verified"], 3)
+        self.assertIsNotNone(st["loggers"][0]["stats"]["success_rate"])
+        code, v = self.call("POST", "/api/verify")
+        self.assertEqual((v["checked"], v["problems"]), (3, []))
+
+    def test_unknown_logger_is_400(self):
+        code, r = self.call("POST", "/api/sync", {"logger": "nope"})
+        self.assertEqual(code, 400)
+
+    def test_sync_job_tracks_segments(self):
+        from envi_daq.webapp import SyncJob
+        j = SyncJob()
+        j.on_event({"type": "start", "logger_id": "L", "session_id": "S", "attempt": 1, "offset": 0, "size": 100})
+        j.on_event({"type": "progress", "logger_id": "L", "session_id": "S", "done": 40, "size": 100})
+        j.on_event({"type": "finish", "logger_id": "L", "session_id": "S", "outcome": "retry", "bytes": 40})
+        j.on_event({"type": "start", "logger_id": "L", "session_id": "S", "attempt": 2, "offset": 40, "size": 100})
+        j.on_event({"type": "progress", "logger_id": "L", "session_id": "S", "done": 100, "size": 100})
+        j.on_event({"type": "finish", "logger_id": "L", "session_id": "S", "outcome": "ok", "bytes": 60})
+        segs = j.snapshot()["current"]["segments"]
+        self.assertEqual([(g["from"], g["to"], g["kind"]) for g in segs], [(0, 40, "ok"), (40, 100, "ok")])
+
+    def test_sync_snapshot_is_isolated_from_later_progress(self):
+        from envi_daq.webapp import SyncJob
+        j = SyncJob()
+        j.on_event({"type": "start", "logger_id": "L", "session_id": "S", "attempt": 1, "offset": 0, "size": 100})
+        snap = j.snapshot()
+        j.on_event({"type": "progress", "logger_id": "L", "session_id": "S", "done": 80, "size": 100})
+        self.assertEqual(snap["current"]["segments"][0]["to"], 0)
+
+
+class TestLinkHistory(unittest.TestCase):
+    def test_link_samples_and_stats(self):
+        with dbm.HistoryDB(":memory:") as h:
+            self.assertEqual(h.schema_version, 2)
+            h.add_link_sample("a", "L", True, -60, 12.5)
+            h.add_link_sample("a", None, False, error="timeout")
+            rows = h.link_samples("a")
+            self.assertEqual([r["reachable"] for r in rows], [1, 0])
+            self.assertEqual(h.transfer_stats(), {})
+
+
 if __name__ == "__main__":
     unittest.main()

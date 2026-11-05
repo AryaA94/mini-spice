@@ -16,3 +16,6 @@ envi-daq = "envi_daq.cli:main"
 
 [tool.setuptools]
 packages = ["envi_daq"]
+
+[tool.setuptools.package-data]
+envi_daq = ["web/*.html"]

@@ -6,6 +6,8 @@ and keeps a full transfer history in SQLite.
 
 **Python 3.11+, standard library only** (urllib, sqlite3, tomllib, http.server).
 
+![Field Link dashboard mid-sync: range chart placing each logger by Wi-Fi signal strength, live transfer with resume, and fleet cards with signal history](docs/dashboard.png)
+
 ```
  Field logger  ──Wi-Fi / HTTP──►  Host: envi-daq sync  ──►  data/<logger>/<session>.csv
  (SD sessions,                     resume · retry ·         transfers.sqlite3
@@ -27,11 +29,29 @@ and keeps a full transfer history in SQLite.
 - **Transfer history**: every attempt is a row in SQLite, recording when it ran, where it resumed,
   how many bytes it moved, how long it took, and why it failed. Data engineers can query
   the database directly or export it to CSV.
+- **Field Link dashboard**: a web UI on the host computer (`envi-daq dashboard`).
+  It has a range chart that places each logger by its Wi-Fi signal strength, live
+  transfer progress with resume points, per-logger signal history, success rate and
+  throughput, a session browser with one-click retry, and the attempt log.
 - **Built for unattended use**: meaningful exit codes, `--json` output, a
   sync lock so overlapping cron runs are safe, recovery after a crash, and a
   rule that it never overwrites an archived file.
 
 ## Quick start (no hardware needed)
+
+The fastest way to see everything is to run one command:
+
+```bash
+cd envi-daq
+python -m envi_daq demo --open
+```
+
+This starts three simulated loggers on strong, weak and very weak Wi-Fi, plus one
+that's switched off, writes a config for them, and opens the dashboard at
+<http://127.0.0.1:8800>. Press **Sync all loggers** and watch it work. Every 45 s
+one of the loggers finishes a new recording, so there's always something new to pull.
+
+### Command-line walkthrough
 
 ```bash
 cd envi-daq
@@ -81,6 +101,8 @@ The output above is trimmed slightly for width. Attempt 4 resumed at byte 69792 
 | `envi-daq retry [--session ID] [--include-invalid]` | Re-queue failed sessions, then sync |
 | `envi-daq verify [--requeue]` | Re-check archived files against their recorded checksums |
 | `envi-daq export FILE [--what sessions\|transfers]` | Export history as CSV |
+| `envi-daq dashboard [--port 8800] [--open]` | Field Link web dashboard for your config |
+| `envi-daq demo [--open]` | Simulated fleet plus the dashboard, no setup needed |
 | `envi-daq simulate [--fail-rate --drop-rate --corrupt-rate --latency --ignore-range]` | Run a fake logger with fault injection |
 
 Global flags: `-c CONFIG` (or `$ENVI_DAQ_CONFIG`), `-v`/`-vv`, and `--json` on read commands.
@@ -115,7 +137,8 @@ The tests run against the simulator over real HTTP. They cover the happy path,
 idempotent re-syncs, resuming after drops, re-downloading after corruption,
 firmware without `Range` support, exhausted retries followed by `retry`, checksum
 conflicts, content quarantine, unreachable loggers, schema migrations,
-crash recovery and the CLI end to end.
+crash recovery, the CLI end to end, and the dashboard API (background sync,
+overlap rejection, link probing, live progress tracking).
 
 ## Layout
 
@@ -127,7 +150,10 @@ envi_daq/
   downloader.py   sync loop: reconcile manifest, resume, verify, retry, commit
   verify.py       size / SHA-256 / CSV content checks
   db.py           SQLite schema, migrations, history queries
-  simulator.py    fake logger with fault injection
+  locking.py      single-sync lock (cron, CLI and dashboard can't collide)
+  webapp.py       dashboard server: JSON API + background sync job
+  web/dashboard.html  the dashboard UI (no build step, no JS dependencies)
+  simulator.py    fake logger with fault injection, bandwidth limits, demo fleet
 tests/            unittest suite
 docs/             architecture, setup, troubleshooting
 ```

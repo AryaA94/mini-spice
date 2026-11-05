@@ -108,6 +108,19 @@ to leave in place.
 The previous sync was killed (Ctrl-C, reboot, OOM). Those attempts are
 recorded as `aborted`, and their partial files resume normally.
 
+### Dashboard shows a logger drifting outward on the range chart
+
+Its RSSI is falling. Check the logger's signal history on its card: a sudden step
+usually means the logger or antenna was moved or knocked; a slow slide can mean
+foliage growth, a failing battery (weaker radio output), or new interference.
+Below about −80 dBm, expect frequent drops. Transfers still finish, thanks to
+resume, but slowly.
+
+### Dashboard says "can't reach the envi-daq dashboard server"
+
+The page loaded but the `envi-daq dashboard` process stopped. Restart it. History is
+in SQLite, so nothing is lost.
+
 ### `config error: …` (exit 2)
 
 The message names the problem. Check that `[[logger]]` blocks each have

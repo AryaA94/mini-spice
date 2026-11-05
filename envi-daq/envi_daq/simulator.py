@@ -10,6 +10,10 @@ Fault injection (each applied independently per data request, from a seeded RNG)
   --drop-rate     send part of the body, then cut the connection (Wi-Fi drop)
   --corrupt-rate  flip one byte in the body (bit error the TCP checksum missed)
   --latency       seconds to sleep before every response
+  --bandwidth     cap the data rate in bytes/s (a weak link is slow, not just flaky)
+  --rssi          reported Wi-Fi signal strength in dBm
+
+`envi-daq demo` runs a small fleet of these (see FLEET) behind the web dashboard.
 """
 
 from __future__ import annotations
@@ -72,6 +76,7 @@ class Faults:
     corrupt_rate: float = 0.0
     latency_s: float = 0.0
     ignore_range: bool = False  # emulate old firmware without resume support
+    bandwidth_bps: int = 0      # 0 = unlimited
 
 
 @dataclass
@@ -79,6 +84,7 @@ class SimLogger:
     logger_id: str = "ENV-0A17"
     name: str = "Envi field logger (simulated)"
     firmware: str = "2.4.1-sim"
+    rssi_dbm: int = -55
     sessions: dict[str, SimSession] = field(default_factory=dict)
     faults: Faults = field(default_factory=Faults)
     seed: int = 1
@@ -138,8 +144,11 @@ def _handler(lg: SimLogger):
             if lg.faults.latency_s:
                 time.sleep(lg.faults.latency_s)
             if self.path == "/api/info":
+                with lg.lock:
+                    rssi = lg.rssi_dbm + lg.pick_rng.randint(-4, 4)
                 return self._json(200, {
                     "logger_id": lg.logger_id, "name": lg.name, "firmware": lg.firmware,
+                    "rssi_dbm": rssi,
                     "free_bytes": 3_900_000_000 - sum(len(s.data) for s in lg.sessions.values()),
                     "battery_v": 3.98, "clock": datetime.now(timezone.utc).isoformat(),
                 })
@@ -187,12 +196,22 @@ def _handler(lg: SimLogger):
             if len(body) > 1 and lg.roll(lg.faults.drop_rate):
                 with lg.lock:
                     cut = lg.pick_rng.randrange(1, len(body))
-                self.wfile.write(body[:cut])
-                self.wfile.flush()
+                self._send(body[:cut])
                 self.close_connection = True
                 self.connection.shutdown(2)
                 return
-            self.wfile.write(body)
+            self._send(body)
+
+        def _send(self, body: bytes) -> None:
+            bw = lg.faults.bandwidth_bps
+            if not bw:
+                self.wfile.write(body)
+                return
+            step = max(512, bw // 20)  # ~20 writes per second
+            for i in range(0, len(body), step):
+                self.wfile.write(body[i:i + step])
+                self.wfile.flush()
+                time.sleep(len(body[i:i + step]) / bw)
 
     return Handler
 
@@ -224,3 +243,36 @@ class SimServer:
 
     def __exit__(self, *exc):
         self.stop()
+
+
+# Demo fleet: one logger per link quality, so the dashboard has something to show.
+FLEET = [
+    # name, logger_id, rssi, sessions, faults
+    ("roof-01", "ENV-0A17", -52, 5, Faults(drop_rate=0.03, bandwidth_bps=160_000)),
+    ("creek-02", "ENV-0B3C", -71, 4, Faults(fail_rate=0.1, drop_rate=0.3, corrupt_rate=0.06,
+                                            bandwidth_bps=70_000)),
+    ("ridge-03", "ENV-0C88", -83, 4, Faults(fail_rate=0.2, drop_rate=0.45, corrupt_rate=0.1,
+                                            latency_s=0.15, bandwidth_bps=30_000)),
+]
+
+
+def start_fleet(samples: int = 2000, seed: int = 1) -> list[tuple[str, SimServer]]:
+    servers = []
+    for i, (name, lid, rssi, n, faults) in enumerate(FLEET):
+        lg = SimLogger.generate(n_sessions=n, samples=samples, seed=seed + i, faults=faults,
+                                logger_id=lid, rssi_dbm=rssi, name=f"Envi field logger {name}")
+        servers.append((name, SimServer(lg).start()))
+    return servers
+
+
+def close_session(lg: SimLogger, samples: int = 2000, interval_s: int = 10) -> str:
+    """Finish the open session and start recording a new one (used by the demo)."""
+    with lg.lock:
+        open_ = [s for s in lg.sessions.values() if s.open]
+        for s in open_:
+            s.open = False
+            s.ended_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        idx = len(lg.sessions) + 1
+    lg.add_session(idx, datetime.now(timezone.utc).replace(microsecond=0), samples // 4,
+                   interval_s, open=True)
+    return open_[0].session_id if open_ else ""

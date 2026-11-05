@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import io
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -60,32 +59,48 @@ def check_content(path: str | Path) -> ContentReport:
     cell or `nan` is an allowed missing sample (e.g. a sensor dropout).
     """
     rep = ContentReport()
-    raw = Path(path).read_bytes()
-    if not raw:
+    path = Path(path)
+    size = path.stat().st_size
+    if size == 0:
         rep.problem("file is empty")
         return rep
-    if not raw.endswith(b"\n"):
-        rep.problem("file does not end with a newline (truncated write?)")
+    with open(path, "rb") as f:
+        f.seek(-1, 2)
+        if f.read(1) != b"\n":
+            rep.problem("file does not end with a newline (truncated write?)")
+
+    # Stream the file: sessions can be large, so never hold it all in memory.
+    f = open(path, "r", encoding="utf-8", newline="")
     try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as e:
-        rep.problem(f"not valid UTF-8 at byte {e.start}")
-        return rep
+        lines = (ln for ln in f if not ln.startswith("#"))
+        reader = csv.reader(lines)
+        try:
+            header = next(reader, None)
+        except UnicodeDecodeError as e:
+            rep.problem(f"not valid UTF-8 near byte {e.start}")
+            return rep
+        if not header:
+            rep.problem("no header row")
+            return rep
+        header = [h.strip() for h in header]
+        rep.columns = header
+        if header[0] != "timestamp":
+            rep.problem(f"first column must be 'timestamp', got {header[0]!r}")
+            return rep
+        if len(header) < 2:
+            rep.problem("no data channels in header")
+        try:
+            _check_rows(reader, header, rep)
+        except UnicodeDecodeError as e:
+            rep.problem(f"not valid UTF-8 near byte {e.start}")
+    finally:
+        f.close()
+    if rep.rows == 0 and rep.ok:
+        rep.problem("header present but no data rows")
+    return rep
 
-    lines = [ln for ln in io.StringIO(text) if not ln.startswith("#")]
-    reader = csv.reader(lines)
-    header = next(reader, None)
-    if not header:
-        rep.problem("no header row")
-        return rep
-    header = [h.strip() for h in header]
-    rep.columns = header
-    if header[0] != "timestamp":
-        rep.problem(f"first column must be 'timestamp', got {header[0]!r}")
-        return rep
-    if len(header) < 2:
-        rep.problem("no data channels in header")
 
+def _check_rows(reader, header: list[str], rep: ContentReport) -> None:
     prev: datetime | None = None
     for lineno, row in enumerate(reader, start=2):
         if not row:
@@ -116,9 +131,6 @@ def check_content(path: str | Path) -> ContentReport:
                 continue
             if math.isinf(v):
                 rep.problem(f"row {lineno}: {col} is infinite")
-    if rep.rows == 0:
-        rep.problem("header present but no data rows")
-    return rep
 
 
 @dataclass

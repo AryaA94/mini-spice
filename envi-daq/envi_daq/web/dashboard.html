@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!--HEAD-->
+<title>Envi DAQ Field Link</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Field Link: an operations board for loggers on unreliable Wi-Fi.
+   Range chart (distance = signal loss) and live transfer up top; fleet cards;
+   then the archive and the attempt log. Cobalt = data in flight;
+   green / amber / red = link quality and outcomes. */
+:root {
+  --bg: #edf0ed;
+  --surface: #fafbf9;
+  --sunk: #e3e8e4;
+  --ink: #13201b;
+  --muted: #5d6b65;
+  --line: #d2d9d4;
+  --accent: #2446d4;
+  --accent-soft: #dfe5fb;
+  --good: #1f7f4c;
+  --good-soft: #d8eee1;
+  --fair: #a86a10;
+  --fair-soft: #f6e6c8;
+  --poor: #bf3c27;
+  --poor-soft: #f6dcd6;
+  --term: #13201b;
+  --term-ink: #cfdad4;
+  --display: "Bricolage Grotesque", "Avenir Next Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --radius: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1412; --surface: #141d1a; --sunk: #1b2622; --ink: #e1e9e4; --muted: #8b9a93;
+    --line: #26332e; --accent: #8b9cff; --accent-soft: #1f2750; --good: #52c487; --good-soft: #15321f;
+    --fair: #e6ad4e; --fair-soft: #3a2c12; --poor: #f17c66; --poor-soft: #3d1c16;
+    --term: #08100d; --term-ink: #c3d0c9; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1412; --surface: #141d1a; --sunk: #1b2622; --ink: #e1e9e4; --muted: #8b9a93;
+  --line: #26332e; --accent: #8b9cff; --accent-soft: #1f2750; --good: #52c487; --good-soft: #15321f;
+  --fair: #e6ad4e; --fair-soft: #3a2c12; --poor: #f17c66; --poor-soft: #3d1c16;
+  --term: #08100d; --term-ink: #c3d0c9; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 14.5px/1.5 var(--body); }
+.page {
+  max-width: 1320px; margin: 0 auto; display: grid; gap: 18px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 18px 56px;
+}
+h1, h2, h3 { margin: 0; font-family: var(--display); text-wrap: balance; }
+h2 { font-size: 13px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+.mono, td.num, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+button {
+  font: 600 13.5px var(--body); color: var(--ink); background: var(--surface); cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 13px; white-space: nowrap;
+}
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:disabled { opacity: 0.55; cursor: default; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.go { background: var(--accent); border-color: var(--accent); color: #fff; }
+:root[data-theme="dark"] button.go { color: #0d1412; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.go { color: #0d1412; } }
+button.small { padding: 3px 9px; font-size: 12.5px; border-radius: 6px; }
+select { font: 500 13px var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+
+/* top bar */
+.bar { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mark { width: 38px; height: 38px; flex: none; }
+.brand h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; line-height: 1; }
+.brand h1 span { color: var(--accent); }
+.brand .host { font-size: 12.5px; color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
+.totals { display: flex; flex-wrap: wrap; gap: 8px 26px; align-items: baseline; }
+.tot { display: grid; }
+.tot b { font: 700 24px/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.tot span { font-size: 12px; color: var(--muted); }
+.tot.problem b { color: var(--poor); }
+.actions { display: flex; gap: 8px; align-items: center; }
+.demo-banner {
+  background: var(--accent-soft); color: var(--ink); border-radius: 10px; padding: 10px 14px;
+  font-size: 13.5px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+}
+.demo-banner b { font-family: var(--display); }
+.demo-banner code { font-family: var(--mono); font-size: 12.5px; }
+
+/* panels */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 14px 18px 0; }
+.panel-head .note { font-size: 12.5px; color: var(--muted); }
+.grid-top { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; }
+
+/* range chart */
+.map { position: relative; }
+.map svg { display: block; width: 100%; height: auto; }
+.ring { fill: none; stroke: var(--line); stroke-width: 1; }
+.ring.minor { stroke-dasharray: 2 5; }
+.ring-label { fill: var(--muted); font: 500 10.5px var(--mono); }
+.link { fill: none; stroke: var(--line); stroke-width: 2; }
+.link.active { stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 4 9; animation: flow 0.7s linear infinite; }
+.link.backoff { stroke: var(--fair); stroke-dasharray: 3 6; }
+.link.offline { stroke: var(--muted); stroke-dasharray: 1 6; opacity: 0.6; }
+@keyframes flow { to { stroke-dashoffset: -26; } }
+.node-dot { stroke: var(--surface); stroke-width: 3; }
+.pulse { fill: none; stroke-width: 1.6; transform-box: fill-box; transform-origin: center; animation: pulse 2.6s ease-out infinite; opacity: 0; }
+.pulse.p2 { animation-delay: 0.87s; } .pulse.p3 { animation-delay: 1.74s; }
+@keyframes pulse { 0% { transform: scale(0.4); opacity: 0.9; } 100% { transform: scale(2.6); opacity: 0; } }
+.node-name { fill: var(--ink); font: 700 14px var(--display); }
+.node-sub { fill: var(--muted); font: 500 11px var(--mono); }
+.host-box { fill: var(--ink); }
+.host-label { fill: var(--ink); font: 700 13px var(--display); }
+.q-good { --q: var(--good); } .q-fair { --q: var(--fair); } .q-poor { --q: var(--poor); } .q-off { --q: var(--muted); }
+.map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0 18px 14px; font-size: 12px; color: var(--muted); }
+.map-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+
+/* live transfer */
+.live { display: grid; grid-template-rows: auto auto 1fr; }
+.live-body { padding: 12px 18px 14px; display: grid; gap: 10px; }
+.phase { font: 700 20px/1.2 var(--display); min-height: 1.2em; overflow-wrap: anywhere; }
+.phase small { display: block; font: 400 13px var(--body); color: var(--muted); margin-top: 3px; }
+.bytes { position: relative; height: 22px; background: var(--sunk); border-radius: 5px; overflow: hidden; }
+.seg { position: absolute; top: 0; bottom: 0; background: var(--accent); transition: width 0.25s linear; }
+.seg.kept { background: var(--fair); }
+.seg.ok { background: var(--good); }
+.seg.discarded { background: repeating-linear-gradient(-45deg, var(--poor-soft) 0 5px, var(--poor) 5px 7px); }
+.bytes-meta { display: flex; justify-content: space-between; gap: 10px; font: 400 12px var(--mono); color: var(--muted); flex-wrap: wrap; }
+.queue { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--muted); min-height: 24px; }
+.chip { font: 500 12px var(--mono); padding: 2px 8px; border-radius: 999px; background: var(--sunk); color: var(--ink); }
+.term {
+  margin: 0 18px 18px; background: var(--term); color: var(--term-ink); border-radius: 9px;
+  font: 400 12px/1.6 var(--mono); padding: 10px 12px; overflow-y: auto; overflow-x: hidden; min-height: 180px; max-height: 260px;
+}
+.term div { white-space: pre-wrap; overflow-wrap: anywhere; padding-left: 9ch; text-indent: -9ch; }
+.term .t { color: #7d8f87; }
+.term .WARNING { color: #f0c26b; }
+.term .ERROR { color: #ff9b88; }
+.term .empty { color: #7d8f87; padding: 0; text-indent: 0; }
+
+/* fleet */
+.fleet { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 14px; }
+.card { padding: 16px 16px 14px; display: grid; gap: 12px; align-content: start; }
+.card-top { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+.card-top > div { min-width: 0; }
+.card h3 { font-size: 20px; font-weight: 700; line-height: 1.1; }
+.card .id { font: 400 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.status { font: 600 12px var(--body); padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.status.online { background: var(--good-soft); color: var(--good); }
+.status.offline { background: var(--poor-soft); color: var(--poor); }
+.status.unknown { background: var(--sunk); color: var(--muted); }
+.signal { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; }
+.bars { display: flex; align-items: end; gap: 3px; height: 26px; }
+.bars i { width: 6px; border-radius: 1.5px; background: var(--sunk); }
+.bars i.on { background: var(--q); }
+.bars i:nth-child(1) { height: 25%; } .bars i:nth-child(2) { height: 50%; } .bars i:nth-child(3) { height: 75%; } .bars i:nth-child(4) { height: 100%; }
+.sig-text { display: grid; line-height: 1.25; }
+.sig-text b { font: 700 17px var(--display); color: var(--q); }
+.sig-text span { font-size: 12px; color: var(--muted); }
+.spark { width: 100%; height: 44px; display: block; }
+.spark .area { fill: var(--q); opacity: 0.14; }
+.spark .ln { fill: none; stroke: var(--q); stroke-width: 1.6; }
+.spark .end { fill: var(--q); }
+.spark .miss { fill: var(--poor); }
+.spark .grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 4; }
+.spark-cap { display: flex; justify-content: space-between; font: 400 11px var(--mono); color: var(--muted); }
+.kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.kv div { display: grid; }
+.kv b { font: 700 18px var(--display); font-variant-numeric: tabular-nums; }
+.kv span { font-size: 11.5px; color: var(--muted); }
+.kv .bad b { color: var(--poor); }
+.card-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; flex-wrap: wrap; }
+.card .err { font: 400 12px var(--mono); color: var(--poor); overflow-wrap: anywhere; }
+
+/* tables */
+.tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.seg-ctl { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg-ctl button { border: 0; border-radius: 0; padding: 6px 11px; background: var(--surface); font-weight: 500; }
+.seg-ctl button + button { border-left: 1px solid var(--line); }
+.seg-ctl button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.seg-ctl button .n { font-family: var(--mono); font-size: 11.5px; opacity: 0.75; margin-left: 4px; }
+.tablewrap { overflow-x: auto; padding: 8px 6px 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { text-align: left; font: 600 11.5px var(--body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.num { text-align: right; }
+td.wrap { white-space: normal; min-width: 24ch; max-width: 60ch; color: var(--muted); font-size: 12.5px; }
+td.wrap.err { color: var(--poor); font-family: var(--mono); font-size: 12px; }
+td .sub { display: block; font-size: 11.5px; color: var(--muted); }
+.pill { font: 600 11.5px var(--body); padding: 2px 9px; border-radius: 999px; white-space: nowrap; display: inline-block; }
+.pill.verified, .pill.ok { background: var(--good-soft); color: var(--good); }
+.pill.pending, .pill.downloading { background: var(--accent-soft); color: var(--accent); }
+.pill.retry { background: var(--fair-soft); color: var(--fair); }
+.pill.failed, .pill.invalid, .pill.conflict, .pill.error, .pill.aborted { background: var(--poor-soft); color: var(--poor); }
+.empty-row td { color: var(--muted); text-align: center; padding: 26px 12px; white-space: normal; }
+.foot { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; align-items: center; font-size: 12.5px; color: var(--muted); }
+.foot code { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.toast {
+  position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  background: var(--ink); color: var(--surface); padding: 10px 14px; border-radius: 9px; font-size: 13.5px;
+  max-width: min(420px, calc(100vw - 32px)); box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+}
+@media (max-width: 960px) { .grid-top { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) {
+  .tot b { font-size: 20px; } .brand h1 { font-size: 22px; }
+  .node-name { font-size: 22px; } .node-sub { font-size: 16px; } .ring-label { font-size: 15px; } .host-label { font-size: 19px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse { animation: none; opacity: 0.35; }
+  .link.active { animation: none; }
+  .seg { transition: none; }
+}
+</style>
+<!--/HEAD-->
+</head>
+<body>
+<!--BODY-->
+<div class="page">
+  <header class="bar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+        <rect x="15" y="25" width="10" height="10" rx="2" fill="var(--ink)"></rect>
+        <path d="M9 21a15 15 0 0 1 22 0" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"></path>
+        <path d="M4 15a22 22 0 0 1 32 0" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" opacity="0.55"></path>
+        <path d="M14 26a8 8 0 0 1 12 0" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"></path>
+      </svg>
+      <div>
+        <h1>Envi DAQ <span>Field Link</span></h1>
+        <div class="host" id="hostLine">connecting…</div>
+      </div>
+    </div>
+    <div class="totals" id="totals" aria-label="Totals"></div>
+    <div class="actions">
+      <button id="verifyBtn" type="button">Verify archive</button>
+      <button id="syncAll" class="go" type="button">Sync all loggers</button>
+    </div>
+  </header>
+
+  <div class="demo-banner" id="demoBanner" hidden></div>
+
+  <div class="grid-top">
+    <section class="panel map" aria-label="Range chart">
+      <div class="panel-head">
+        <h2>Range chart</h2>
+        <span class="note">distance from the host = signal loss (RSSI)</span>
+      </div>
+      <svg id="map" viewBox="0 0 640 360" role="img" aria-label="Loggers placed by Wi-Fi signal strength"></svg>
+      <div class="map-legend">
+        <span><i style="background:var(--good)"></i>strong ≥ −60 dBm</span>
+        <span><i style="background:var(--fair)"></i>fair −60 to −72</span>
+        <span><i style="background:var(--poor)"></i>weak &lt; −72</span>
+        <span><i style="background:var(--muted)"></i>offline</span>
+      </div>
+    </section>
+
+    <section class="panel live" aria-label="Live transfer">
+      <div class="panel-head">
+        <h2>Live transfer</h2>
+        <span class="note" id="liveNote"></span>
+      </div>
+      <div class="live-body">
+        <div class="phase" id="phase">Idle</div>
+        <div class="bytes" id="bytes" aria-hidden="true"></div>
+        <div class="bytes-meta" id="bytesMeta"></div>
+        <div class="queue" id="queue"></div>
+      </div>
+      <div class="term" id="term" role="log" aria-label="Sync log"><div class="empty">Sync output appears here.</div></div>
+    </section>
+  </div>
+
+  <section aria-label="Loggers">
+    <div class="fleet" id="fleet"></div>
+  </section>
+
+  <section class="panel" aria-label="Sessions">
+    <div class="panel-head">
+      <h2>Sessions</h2>
+      <div class="tools">
+        <div class="seg-ctl" role="group" aria-label="Filter sessions" id="filters"></div>
+        <select id="loggerFilter" aria-label="Logger"><option value="">All loggers</option></select>
+      </div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Logger</th><th>Session</th><th>Status</th><th>Recorded</th><th class="num">Size</th><th class="num">Rows</th><th class="num">Tries</th><th>Archived / last problem</th><th></th></tr></thead>
+        <tbody id="sessRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Transfer attempts">
+    <div class="panel-head">
+      <h2>Transfer attempts</h2>
+      <span class="note">every try, newest first · from transfers.sqlite3</span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>When</th><th>Logger</th><th>Session</th><th class="num">Try</th><th>Outcome</th><th class="num">Resumed at</th><th class="num">Received</th><th class="num">Time</th><th>Error</th></tr></thead>
+        <tbody id="txRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="foot" id="foot"></footer>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<!--DEMO-->
+<script>
+(() => {
+"use strict";
+const DEMO = window.ENVI_DEMO || null;
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function api(method, path, body) {
+  if (DEMO) return DEMO.api(method, path, body);
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok && r.status !== 409) throw new Error(data.message || data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+// ---------- formatting ----------
+const fmtBytes = (n) => n == null ? "—" : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
+const fmtRate = (n) => !n ? "—" : n >= 102400 ? `${Math.round(n / 1024)} KB/s` : `${(n / 1024).toFixed(1)} KB/s`;
+const fmtInt = (n) => n == null ? "—" : Number(n).toLocaleString("en-US");
+function nowMs() { return DEMO ? DEMO.now() : Date.now(); }
+function ago(iso) {
+  if (!iso) return "never";
+  const s = Math.max(0, (nowMs() - Date.parse(iso)) / 1000);
+  if (s < 5) return "just now";
+  if (s < 60) return `${Math.round(s)} s ago`;
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return `${Math.round(s / 86400)} d ago`;
+}
+function span(a, b) {
+  if (!a || !b) return "";
+  const h = (Date.parse(b) - Date.parse(a)) / 3600000;
+  return h >= 1 ? `${h.toFixed(1)} h` : `${Math.round(h * 60)} min`;
+}
+const shortDate = (iso) => iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC" : "—";
+function quality(l) {
+  if (!l.online) return l.last_checked ? "off" : "off";
+  const r = l.rssi_dbm;
+  if (r == null) return "fair";
+  return r >= -60 ? "good" : r >= -72 ? "fair" : "poor";
+}
+const qName = { good: "Strong", fair: "Fair", poor: "Weak", off: "Offline" };
+const barsFor = (q, rssi) => q === "off" ? 0 : rssi >= -55 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : 1;
+
+// ---------- state ----------
+let ST = null, SYNC = null, seq = 0, lines = [];
+let filter = "all", loggerFilter = "";
+let busy = false;
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast._h); toast._h = setTimeout(() => { t.hidden = true; }, 4200);
+}
+
+// ---------- render: header ----------
+function renderTop() {
+  const t = ST.totals;
+  const problems = t.failed + t.invalid + t.conflict;
+  const waiting = t.pending + t.downloading;
+  $("hostLine").textContent = `host ${ST.host} · ${ST.loggers.length} loggers · envi-daq ${ST.version}`;
+  $("totals").innerHTML = `
+    <div class="tot"><b>${fmtInt(t.verified)}</b><span>archived · ${fmtBytes(t.archived_bytes)}</span></div>
+    <div class="tot"><b>${fmtInt(waiting)}</b><span>waiting to download</span></div>
+    <div class="tot ${problems ? "problem" : ""}"><b>${fmtInt(problems)}</b><span>need attention</span></div>
+    <div class="tot"><b>${t.success_rate == null ? "—" : Math.round(t.success_rate * 100) + "%"}</b><span>attempts that succeeded</span></div>`;
+  const running = SYNC && SYNC.running;
+  $("syncAll").disabled = running || busy;
+  $("syncAll").textContent = running ? "Syncing…" : "Sync all loggers";
+  $("foot").innerHTML = `<span>Data <code>${esc(ST.data_dir)}</code></span><span>History <code>${esc(ST.database)}</code></span><span>Updated ${esc(ago(ST.now))}</span>`;
+}
+
+// ---------- render: range chart ----------
+const MAP = { cx: 320, cy: 340, w: 640 };
+const radiusFor = (rssi) => 46 + (Math.min(-40, Math.max(-92, rssi)) * -1 - 40) * 5.4;
+let mapKey = "";
+function buildMap() {
+  const svg = $("map");
+  const L = ST.loggers;
+  let html = "";
+  for (const db of [-50, -60, -70, -80, -90]) {
+    const r = radiusFor(db);
+    html += `<path class="ring ${db % 20 ? "minor" : ""}" d="M ${MAP.cx - r} ${MAP.cy} A ${r} ${r} 0 0 1 ${MAP.cx + r} ${MAP.cy}"></path>`;
+    html += `<text class="ring-label" x="${MAP.cx + r - 4}" y="${MAP.cy - 4}" text-anchor="end">${db}</text>`;
+  }
+  html += `<text class="ring-label" x="${MAP.cx + radiusFor(-90) + 4}" y="${MAP.cy - 16}" text-anchor="start">dBm</text>`;
+  L.forEach((l, i) => {
+    html += `<path class="link" id="link-${i}"></path>`;
+  });
+  L.forEach((l, i) => {
+    html += `<g id="node-${i}">
+      <circle class="pulse" r="9"></circle><circle class="pulse p2" r="9"></circle><circle class="pulse p3" r="9"></circle>
+      <circle class="node-dot" r="8"></circle>
+      <text class="node-name"></text><text class="node-sub"></text></g>`;
+  });
+  html += `<rect class="host-box" x="${MAP.cx - 17}" y="${MAP.cy - 15}" width="34" height="26" rx="4"></rect>
+    <rect x="${MAP.cx - 12}" y="${MAP.cy - 10}" width="24" height="15" rx="2" fill="var(--accent)" opacity="0.85"></rect>
+    <text class="host-label" x="${MAP.cx}" y="${MAP.cy - 24}" text-anchor="middle">host</text>`;
+  svg.innerHTML = html;
+}
+function updateMap() {
+  const key = ST.loggers.map((l) => l.name).join("|");
+  if (key !== mapKey) { mapKey = key; buildMap(); }
+  const L = ST.loggers;
+  const n = L.length;
+  const activeId = SYNC && SYNC.running && SYNC.current ? SYNC.current.logger_id : null;
+  const discovering = SYNC && SYNC.running && SYNC.phase === "discovering" ? SYNC.logger : null;
+  L.forEach((l, i) => {
+    const q = quality(l);
+    const rssi = l.online && l.rssi_dbm != null ? l.rssi_dbm : -90;
+    const r = l.online ? radiusFor(rssi) : radiusFor(-90) + 6;
+    const ang = Math.PI * (0.88 - (0.76 * (i + 0.5)) / n);
+    const x = MAP.cx + r * Math.cos(ang), y = MAP.cy - r * Math.sin(ang) * 0.86;
+    const g = $(`node-${i}`);
+    g.setAttribute("class", `q-${q}`);
+    g.querySelectorAll(".pulse").forEach((c) => { c.setAttribute("cx", x); c.setAttribute("cy", y); c.style.stroke = "var(--q)"; c.style.display = q === "off" ? "none" : ""; });
+    const dot = g.querySelector(".node-dot");
+    dot.setAttribute("cx", x); dot.setAttribute("cy", y); dot.style.fill = "var(--q)";
+    // Labels go on the outer side, but flip inward near the chart's edges.
+    const right = x < 150 ? false : x > MAP.w - 150 ? true : x < MAP.cx;
+    const tx = x + (right ? -14 : 14);
+    const name = g.querySelector(".node-name"), sub = g.querySelector(".node-sub");
+    name.setAttribute("x", tx); name.setAttribute("y", y - 2); name.setAttribute("text-anchor", right ? "end" : "start");
+    name.textContent = l.name;
+    sub.setAttribute("x", tx); sub.setAttribute("y", y + 13); sub.setAttribute("text-anchor", right ? "end" : "start");
+    sub.textContent = l.online ? `${l.rssi_dbm ?? "?"} dBm · ${Math.round(l.latency_ms ?? 0)} ms` : "no response";
+    const link = $(`link-${i}`);
+    const mx = (x + MAP.cx) / 2 + (MAP.cx - x) * 0.08, my = Math.min(y, MAP.cy) - 30;
+    link.setAttribute("d", `M ${x} ${y} Q ${mx} ${my} ${MAP.cx} ${MAP.cy - 15}`);
+    let cls = "link";
+    const isActive = (activeId && l.logger_id === activeId) || discovering === l.name;
+    if (!l.online) cls += " offline";
+    else if (isActive && SYNC.phase === "backoff") cls += " backoff";
+    else if (isActive) cls += " active";
+    link.setAttribute("class", cls);
+  });
+}
+
+// ---------- render: live panel ----------
+function renderLive() {
+  const s = SYNC || { phase: "idle" };
+  const cur = s.current;
+  const nameOf = (lid) => (ST && ST.loggers.find((l) => l.logger_id === lid) || {}).name || lid;
+  let title = "Idle", sub = "Press Sync to pull new sessions from every logger.";
+  if (s.running) {
+    if (s.phase === "discovering" || s.phase === "starting") { title = `Contacting ${s.logger || "loggers"}…`; sub = "GET /api/info · GET /api/sessions"; }
+    else if (s.phase === "unreachable") { title = `${s.logger} is not answering`; sub = "Retrying with backoff, then moving on."; }
+    else if (s.phase === "up-to-date") { title = `${s.logger} is up to date`; sub = "Nothing new on this logger."; }
+    else if (cur && s.phase === "backoff") {
+      title = `Waiting ${(cur.backoff_left_s ?? cur.backoff_s).toFixed(1)} s before retrying ${cur.session_id}`;
+      sub = cur.error ? `Last try: ${cur.error}` : "";
+    } else if (cur) {
+      title = `${cur.offset ? "Resuming" : "Downloading"} ${cur.session_id} from ${nameOf(cur.logger_id)}`;
+      sub = `attempt ${cur.attempt}${cur.offset ? ` · Range: bytes=${fmtInt(cur.offset)}-` : ""}`;
+    }
+  } else if (s.finished_at) {
+    const got = (s.results || []).reduce((a, r) => a + r.downloaded, 0);
+    const bad = (s.results || []).reduce((a, r) => a + r.failed, 0);
+    const off = (s.results || []).filter((r) => !r.reachable).map((r) => r.logger);
+    title = s.error ? "Sync stopped" : `Last sync: ${got} downloaded${bad ? `, ${bad} failed` : ""}`;
+    sub = s.error ? s.error : `${ago(s.finished_at)}${off.length ? ` · not reachable: ${off.join(", ")}` : ""}`;
+  }
+  $("phase").innerHTML = `${esc(title)}<small>${esc(sub)}</small>`;
+  $("liveNote").textContent = s.running ? `syncing ${s.scope || ""}` : "";
+  // byte bar
+  const bar = $("bytes");
+  if (cur) {
+    bar.innerHTML = cur.segments.map((g) => `<div class="seg ${g.kind}" style="left:${(100 * g.from) / cur.size}%;width:${(100 * (g.to - g.from)) / cur.size}%"></div>`).join("");
+    const pct = Math.floor((100 * cur.done) / cur.size);
+    $("bytesMeta").innerHTML = `<span>${esc(cur.session_id)}.csv${cur.outcome === "ok" ? "" : ".part"}</span><span>${fmtInt(cur.done)} / ${fmtInt(cur.size)} bytes · ${pct}%</span>`;
+  } else { bar.innerHTML = ""; $("bytesMeta").innerHTML = ""; }
+  const q = (s.queue || []).filter((x) => !cur || x !== cur.session_id || cur.outcome === "ok");
+  $("queue").innerHTML = s.running && q.length ? `<span>Up next</span>${q.slice(0, 8).map((x) => `<span class="chip">${esc(x)}</span>`).join("")}${q.length > 8 ? `<span>+${q.length - 8}</span>` : ""}` : "";
+}
+function renderLog() {
+  const t = $("term");
+  if (!lines.length) return;
+  const atBottom = t.scrollHeight - t.scrollTop - t.clientHeight < 30;
+  t.innerHTML = lines.slice(-250).map((l) => `<div class="${esc(l.level)}"><span class="t">${esc(l.t.slice(11, 19))}</span> ${esc(l.msg)}</div>`).join("");
+  if (atBottom || SYNC?.running) t.scrollTop = t.scrollHeight;
+}
+
+// ---------- render: fleet ----------
+function spark(samples) {
+  const W = 260, H = 44, lo = -95, hi = -40;
+  if (!samples.length) return `<svg class="spark" viewBox="0 0 ${W} ${H}"></svg>`;
+  const n = samples.length;
+  const X = (i) => n === 1 ? W - 4 : 4 + (i * (W - 8)) / (n - 1);
+  const Y = (v) => 4 + ((hi - v) / (hi - lo)) * (H - 8);
+  let d = "", area = "", runStart = null, lastPt = null, misses = "";
+  samples.forEach((s, i) => {
+    if (s.ok && s.rssi != null) {
+      const x = X(i), y = Y(s.rssi);
+      if (runStart === null) { d += `M${x.toFixed(1)},${y.toFixed(1)}`; runStart = x; area += `M${x.toFixed(1)},${H}L${x.toFixed(1)},${y.toFixed(1)}`; }
+      else { d += `L${x.toFixed(1)},${y.toFixed(1)}`; area += `L${x.toFixed(1)},${y.toFixed(1)}`; }
+      lastPt = [x, y];
+    } else {
+      if (runStart !== null && lastPt) area += `L${lastPt[0].toFixed(1)},${H}Z`;
+      runStart = null;
+      misses += `<rect class="miss" x="${(X(i) - 1.5).toFixed(1)}" y="${H - 6}" width="3" height="6"></rect>`;
+    }
+  });
+  if (runStart !== null && lastPt) area += `L${lastPt[0].toFixed(1)},${H}Z`;
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <line class="grid" x1="0" x2="${W}" y1="${Y(-60)}" y2="${Y(-60)}"></line><line class="grid" x1="0" x2="${W}" y1="${Y(-72)}" y2="${Y(-72)}"></line>
+    <path class="area" d="${area}"></path><path class="ln" d="${d}"></path>${misses}
+    ${lastPt ? `<circle class="end" cx="${lastPt[0]}" cy="${lastPt[1]}" r="3"></circle>` : ""}</svg>`;
+}
+function renderFleet() {
+  const running = SYNC && SYNC.running;
+  $("fleet").innerHTML = ST.loggers.map((l) => {
+    const q = quality(l);
+    const c = l.counts || {};
+    const st = l.stats;
+    const waiting = (c.pending || 0) + (c.downloading || 0);
+    const problems = (c.failed || 0) + (c.invalid || 0) + (c.conflict || 0);
+    const nb = barsFor(q, l.rssi_dbm);
+    const statusCls = l.online ? "online" : l.last_checked ? "offline" : "unknown";
+    const statusTxt = l.online ? "online" : l.last_checked ? "offline" : "not checked";
+    const okSamples = l.samples.filter((s) => s.ok && s.rssi != null).map((s) => s.rssi);
+    const range = okSamples.length ? `${Math.min(...okSamples)} to ${Math.max(...okSamples)} dBm` : "no signal readings";
+    return `<article class="panel card q-${q}">
+      <div class="card-top"><div><h3>${esc(l.name)}</h3><div class="id">${esc(l.logger_id || "id unknown")}${l.firmware ? ` · fw ${esc(l.firmware)}` : ""}</div></div>
+        <span class="status ${statusCls}">${statusTxt}</span></div>
+      <div class="signal"><div class="bars" aria-hidden="true">${[1, 2, 3, 4].map((k) => `<i class="${k <= nb ? "on" : ""}"></i>`).join("")}</div>
+        <div class="sig-text"><b>${l.online ? `${qName[q]} · ${l.rssi_dbm ?? "?"} dBm` : "Offline"}</b><span>${l.online ? `${Math.round(l.latency_ms ?? 0)} ms round trip · ${esc(l.url)}` : esc(l.url)}</span></div></div>
+      <div>${spark(l.samples)}<div class="spark-cap"><span>last ${l.samples.length} checks</span><span>${range}</span></div></div>
+      ${!l.online && l.last_error ? `<div class="err">${esc(l.last_error)}</div>` : ""}
+      <div class="kv">
+        <div><b>${fmtInt(c.verified || 0)}</b><span>archived</span></div>
+        <div><b>${fmtInt(waiting)}</b><span>waiting</span></div>
+        <div class="${problems ? "bad" : ""}"><b>${fmtInt(problems)}</b><span>problems</span></div>
+        <div><b>${st && st.success_rate != null ? Math.round(st.success_rate * 100) + "%" : "—"}</b><span>tries succeeded</span></div>
+        <div><b>${st ? fmtInt(st.resumes) : "—"}</b><span>resumed</span></div>
+        <div><b>${fmtRate(st && st.throughput_bps)}</b><span>throughput</span></div>
+      </div>
+      <div class="card-foot"><span>seen ${esc(ago(l.last_seen))}</span>
+        <button class="small" type="button" data-sync="${esc(l.name)}" ${running || busy ? "disabled" : ""}>Sync ${esc(l.name)}</button></div>
+    </article>`;
+  }).join("");
+}
+
+// ---------- render: tables ----------
+const GROUPS = {
+  all: () => true,
+  waiting: (s) => s.status === "pending" || s.status === "downloading",
+  archived: (s) => s.status === "verified",
+  problems: (s) => ["failed", "invalid", "conflict"].includes(s.status),
+};
+const GROUP_LABEL = { all: "All", waiting: "Waiting", archived: "Archived", problems: "Problems" };
+function renderSessions() {
+  const sel = $("loggerFilter");
+  const names = [...new Set(ST.sessions.map((s) => s.logger_name))].sort();
+  const want = `<option value="">All loggers</option>` + names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  if (sel.dataset.k !== names.join("|")) { sel.innerHTML = want; sel.dataset.k = names.join("|"); sel.value = loggerFilter; }
+  const base = ST.sessions.filter((s) => !loggerFilter || s.logger_name === loggerFilter);
+  $("filters").innerHTML = Object.keys(GROUPS).map((k) =>
+    `<button type="button" data-filter="${k}" aria-pressed="${filter === k}">${GROUP_LABEL[k]}<span class="n">${base.filter(GROUPS[k]).length}</span></button>`).join("");
+  const rows = base.filter(GROUPS[filter]).sort((a, b) => (b.started_at || "").localeCompare(a.started_at || ""));
+  const running = SYNC && SYNC.running;
+  $("sessRows").innerHTML = rows.length ? rows.map((s) => {
+    const canRetry = ["failed", "invalid"].includes(s.status);
+    const note = s.status === "verified" ? `<span>${esc(ago(s.completed_at))}</span><span class="sub">${esc((s.local_path || "").split(/[\\/]/).slice(-2).join("/"))}</span>` : esc(s.last_error || (s.status === "pending" ? "queued for the next sync" : ""));
+    return `<tr><td>${esc(s.logger_name)}</td><td class="mono">${esc(s.session_id)}</td>
+      <td><span class="pill ${esc(s.status)}">${esc(s.status === "verified" ? "archived" : s.status)}</span></td>
+      <td>${esc(shortDate(s.started_at))}<span class="sub">${esc(span(s.started_at, s.ended_at))}</span></td>
+      <td class="num">${fmtBytes(s.size_bytes)}</td><td class="num">${s.row_count == null ? "—" : fmtInt(s.row_count)}</td><td class="num">${s.attempts}</td>
+      <td class="wrap ${s.status !== "verified" && s.last_error ? "err" : ""}">${note}</td>
+      <td>${canRetry ? `<button class="small" type="button" data-retry="${esc(s.session_id)}" data-lid="${esc(s.logger_id)}" data-inv="${s.status === "invalid" ? 1 : 0}" ${running ? "disabled" : ""}>Retry</button>` : ""}</td></tr>`;
+  }).join("") : `<tr class="empty-row"><td colspan="9">${ST.sessions.length ? "No sessions match this filter." : "No sessions yet. Press Sync to pull the session list from your loggers."}</td></tr>`;
+}
+function renderTransfers() {
+  const T = ST.transfers;
+  $("txRows").innerHTML = T.length ? T.slice(0, 40).map((t) => `<tr>
+    <td>${esc(ago(t.started_at))}</td><td>${esc(t.logger_name)}</td><td class="mono">${esc(t.session_id)}</td><td class="num">${t.attempt}</td>
+    <td><span class="pill ${esc(t.outcome || "downloading")}">${esc(t.outcome || "in progress")}</span></td>
+    <td class="num">${t.resumed_from ? fmtInt(t.resumed_from) : ""}</td><td class="num">${fmtBytes(t.bytes_received)}</td>
+    <td class="num">${t.duration_s == null ? "" : t.duration_s.toFixed(1) + " s"}</td>
+    <td class="wrap err">${esc(t.error || "")}</td></tr>`).join("") : `<tr class="empty-row"><td colspan="9">No transfers yet. Each download attempt is recorded here.</td></tr>`;
+}
+
+function renderAll() {
+  if (!ST) return;
+  renderTop(); updateMap(); renderLive(); renderFleet(); renderSessions(); renderTransfers();
+}
+
+// ---------- events ----------
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.filter) { filter = b.dataset.filter; renderSessions(); return; }
+  if (b.id === "syncAll" || b.dataset.sync) {
+    await start("/api/sync", b.dataset.sync ? { logger: b.dataset.sync } : {});
+  } else if (b.dataset.retry) {
+    await start("/api/retry", { logger_id: b.dataset.lid, session_id: b.dataset.retry, include_invalid: b.dataset.inv === "1" });
+  } else if (b.id === "verifyBtn") {
+    b.disabled = true;
+    try {
+      const r = await api("POST", "/api/verify");
+      toast(r.problems.length ? `${r.problems.length} of ${r.checked} archived files failed re-verification: ${r.problems.map((p) => p.session_id).join(", ")}` : `All ${r.checked} archived files match their checksums.`);
+    } catch (err) { toast(`Verify failed: ${err.message}`); }
+    b.disabled = false;
+  }
+});
+$("loggerFilter").addEventListener("change", (e) => { loggerFilter = e.target.value; renderSessions(); });
+
+async function start(path, body) {
+  busy = true; renderAll();
+  try {
+    const r = await api("POST", path, body);
+    if (r.ok === false) toast(r.message);
+    await pollSync(); await refreshState();
+  } catch (err) { toast(err.message); }
+  busy = false; renderAll(); schedule();
+}
+
+// ---------- polling ----------
+async function refreshState() { ST = await api("GET", "/api/state"); if (!SYNC) SYNC = ST.sync; }
+async function pollSync() {
+  const s = await api("GET", `/api/sync?since=${seq}`);
+  if (s.seq < seq) { seq = 0; lines = []; }
+  if (s.lines && s.lines.length) { lines.push(...s.lines); seq = s.seq; }
+  else seq = Math.max(seq, s.seq);
+  SYNC = s;
+}
+let timer = null, lastState = 0;
+function schedule() {
+  clearTimeout(timer);
+  const running = SYNC && SYNC.running;
+  timer = setTimeout(tick, running ? 350 : (DEMO && DEMO.poll_ms) || 4000);
+}
+async function tick() {
+  try {
+    const wasRunning = SYNC && SYNC.running;
+    await pollSync();
+    const now = Date.now();
+    if (SYNC.running ? now - lastState > 1200 : true) { await refreshState(); lastState = now; }
+    else if (wasRunning && !SYNC.running) { await refreshState(); }
+    renderAll(); renderLog();
+  } catch (err) {
+    $("hostLine").textContent = `can't reach the envi-daq dashboard server (${err.message})`;
+  }
+  schedule();
+}
+
+if (DEMO && DEMO.banner) { $("demoBanner").hidden = false; $("demoBanner").innerHTML = DEMO.banner; }
+(async () => {
+  try { await refreshState(); await pollSync(); renderAll(); renderLog(); }
+  catch (err) { $("hostLine").textContent = `can't reach the envi-daq dashboard server (${err.message})`; }
+  schedule();
+})();
+})();
+</script>
+<!--/BODY-->
+</body>
+</html>

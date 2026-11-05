@@ -71,7 +71,18 @@ envi-daq sync -v          # do it, with per-session progress and log lines
 envi-daq sessions         # what's archived and where
 ```
 
-## 6. Schedule it
+## 6. Open the dashboard
+
+```bash
+envi-daq dashboard --open        # http://127.0.0.1:8800
+```
+
+Leave it running on the host computer. It checks each logger's link every 30 s
+(`--probe-interval`), and **Sync** buttons start a download from the browser. To
+reach it from another machine on the site network, use `--host 0.0.0.0`. It has no
+login, so only do this on a network you trust.
+
+## 7. Schedule it
 
 Exit codes let a scheduler or monitoring tool tell what happened:
 `0` OK · `1` failures/conflicts · `2` config error · `3` logger unreachable · `4` already running.
@@ -87,7 +98,7 @@ Overlapping runs are safe: the second exits with code 4.
 **Windows (Task Scheduler)**: Program `C:\envi-daq\.venv\Scripts\envi-daq.exe`,
 arguments `-c C:\envi-daq\config.toml sync`, trigger every 30 minutes.
 
-## 7. Hand off to data engineering
+## 8. Hand off to data engineering
 
 - Verified files: `data/<logger_id>/<session_id>.csv`. Only verified files
   ever appear under this name, so downstream jobs can pick up `*.csv` and skip

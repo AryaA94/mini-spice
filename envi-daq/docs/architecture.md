@@ -135,6 +135,17 @@ why did it fail?" The database uses WAL mode, so data engineers can query it
 read-only (`sqlite3`, pandas, DBeaver) while a sync is running. Schema
 changes are versioned through `PRAGMA user_version` (`envi_daq/db.py:MIGRATIONS`).
 
+Schema v2 adds Wi-Fi link health. Each time the host contacts a logger
+(sync discovery or a dashboard probe), it records one row:
+
+```
+link_samples (sample_id PK, logger_name, logger_id, sampled_at,
+              reachable, rssi_dbm, latency_ms, error)
+```
+
+The logger reports `rssi_dbm` in `/api/info`, which is its own view of the signal.
+That history is what lets you tell "the logger is flaky" apart from "the antenna got knocked".
+
 Useful queries:
 
 ```sql
@@ -156,5 +167,32 @@ FROM transfers GROUP BY logger_id;
 | `envi_daq/downloader.py` | Sync orchestration, resume, retry, atomic commit |
 | `envi_daq/verify.py` | Size, SHA-256 and content checks |
 | `envi_daq/db.py` | SQLite schema, migrations, history queries |
-| `envi_daq/cli.py` | `envi-daq` command, output formats, exit codes, sync lock |
+| `envi_daq/cli.py` | `envi-daq` command, output formats, exit codes |
+| `envi_daq/locking.py` | One sync at a time across cron, the CLI and the dashboard |
+| `envi_daq/webapp.py` | Dashboard server: JSON API, background sync job, link probes |
+| `envi_daq/web/dashboard.html` | Dashboard UI, vanilla JS, served by `webapp.py` |
 | `envi_daq/simulator.py` | Fake logger with fault injection for development and tests |
+
+## Dashboard
+
+`envi-daq dashboard` serves a single page and a small JSON API from the host
+computer. A sync started from the browser runs on a background thread and
+takes the same lock as a cron sync, so the two can't overlap. The page
+polls `/api/sync` for progress, about three times a second during a sync,
+and `/api/state` for everything else. A background probe contacts each
+logger every 30 s to record signal strength and register newly closed sessions
+as pending, without downloading anything.
+
+| Endpoint | |
+|---|---|
+| `GET /api/state` | Loggers with link history and stats, sessions, the last 80 transfers, totals |
+| `GET /api/sync?since=N` | Current job: phase, current session with byte segments, queue, log lines after N |
+| `POST /api/sync` `{"logger"?}` | Start a sync (409 if one is running) |
+| `POST /api/retry` `{"logger_id"?, "session_id"?, "include_invalid"?}` | Re-queue and sync |
+| `POST /api/probe`, `POST /api/verify` | Check links now, or re-verify the archive |
+
+The **range chart** places each logger at a distance from the host proportional
+to its signal loss. The rings are drawn at −50 to −90 dBm, so a logger drifting
+outward over time means its link is getting worse.
+
+The dashboard has no login. It binds to `127.0.0.1` unless you pass `--host`.

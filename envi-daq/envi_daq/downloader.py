@@ -30,6 +30,7 @@ from envi_daq.verify import check_content, sha256_file
 log = logging.getLogger("envi_daq")
 
 ProgressFn = Callable[[str, int, int], None]  # (session_id, bytes_done, bytes_total)
+EventFn = Callable[[dict], None]  # structured events for live UIs (see Downloader._emit)
 
 
 class _Retry(Exception):
@@ -80,6 +81,18 @@ class SyncReport:
     def ok(self) -> bool:
         return self.reachable and not self.failed and not self.conflicts
 
+    def summary(self) -> str:
+        if not self.reachable:
+            return f"{self.logger_name}: UNREACHABLE -- {self.error}"
+        parts = [f"{len(self.downloaded)} downloaded", f"{len(self.failed)} failed"]
+        if self.new_sessions:
+            parts.insert(0, f"{self.new_sessions} new")
+        if self.skipped_open:
+            parts.append(f"{self.skipped_open} still recording")
+        if self.conflicts:
+            parts.append(f"{self.conflicts} CONFLICT")
+        return f"{self.logger_name} ({self.logger_id}): " + ", ".join(parts)
+
 
 def session_paths(data_dir: Path, logger_id: str, session_id: str) -> tuple[Path, Path]:
     safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in session_id)
@@ -97,6 +110,7 @@ class Downloader:
         sleep: Callable[[float], None] = time.sleep,
         rng: random.Random | None = None,
         progress: ProgressFn | None = None,
+        listener: EventFn | None = None,
     ):
         self.db = history
         self.data_dir = Path(data_dir)
@@ -105,6 +119,14 @@ class Downloader:
         self.sleep = sleep
         self.rng = rng or random.Random()
         self.progress = progress
+        self.listener = listener
+
+    def _emit(self, type_: str, **fields) -> None:
+        if self.listener:
+            try:
+                self.listener({"type": type_, **fields})
+            except Exception:  # a broken UI must never break a transfer
+                log.debug("event listener failed", exc_info=True)
 
     # -- whole logger --------------------------------------------------------
 
@@ -114,17 +136,25 @@ class Downloader:
         report = SyncReport(logger_name=logger.name)
 
         # Discovery: the logger may be out of Wi-Fi range; retry a few times.
+        self._emit("discover", logger=logger.name)
+        t0 = time.monotonic()
         try:
             info, manifest = self._with_retries(
                 lambda: (client.info(), client.sessions()), what=f"{logger.name}: discovery")
         except LoggerError as e:
             report.error = str(e)
             log.error("%s: unreachable: %s", logger.name, e)
+            self.db.add_link_sample(logger.name, None, False, error=str(e))
+            self._emit("unreachable", logger=logger.name, error=str(e))
             return report
+        latency_ms = (time.monotonic() - t0) * 1000
         report.reachable = True
         logger_id = str(info["logger_id"])
         report.logger_id = logger_id
+        rssi = info.get("rssi_dbm")
         self.db.upsert_logger(logger_id, logger.name, logger.url, info.get("firmware"))
+        self.db.add_link_sample(logger.name, logger_id, True,
+                                int(rssi) if isinstance(rssi, (int, float)) else None, latency_ms)
         log.info("%s: connected to %s (firmware %s), %d sessions in manifest",
                  logger.name, logger_id, info.get("firmware", "?"), len(manifest))
 
@@ -153,8 +183,12 @@ class Downloader:
         if dry_run:
             report.results = [SessionResult(s.session_id, s.status, 0, 0, "dry run") for s in todo]
             return report
+        self._emit("manifest", logger=logger.name, logger_id=logger_id,
+                   to_download=[s.session_id for s in todo], skipped_open=report.skipped_open)
         for s in todo:
             report.results.append(self.download_session(client, s))
+        self._emit("logger_done", logger=logger.name, logger_id=logger_id,
+                   downloaded=len(report.downloaded), failed=len(report.failed))
         return report
 
     # -- one session ---------------------------------------------------------
@@ -172,7 +206,9 @@ class Downloader:
                 log.warning("%s: partial file larger than expected; restarting", tag)
                 part.unlink()
                 offset = 0
-            transfer_id, _ = self.db.start_transfer(s.logger_id, s.session_id, offset)
+            transfer_id, n = self.db.start_transfer(s.logger_id, s.session_id, offset)
+            self._emit("start", logger_id=s.logger_id, session_id=s.session_id, attempt=n,
+                       offset=offset, size=s.size_bytes)
             t0 = time.monotonic()
             received = 0
             try:
@@ -181,6 +217,8 @@ class Downloader:
                 rows = self._verify(s, part)
                 os.replace(part, final)
                 self.db.finish_transfer(transfer_id, "ok", received, time.monotonic() - t0)
+                self._emit("finish", logger_id=s.logger_id, session_id=s.session_id,
+                           outcome="ok", bytes=received)
                 self.db.set_status(s.logger_id, s.session_id, dbm.VERIFIED,
                                    local_path=str(final), row_count=rows)
                 log.info("%s: verified (%d bytes, %d rows, attempt %d)",
@@ -192,12 +230,17 @@ class Downloader:
                 last_error = str(e)
                 self.db.finish_transfer(transfer_id, "retry", received,
                                         time.monotonic() - t0, last_error)
+                self._emit("finish", logger_id=s.logger_id, session_id=s.session_id,
+                           outcome="retry", bytes=received, error=last_error,
+                           at=_size(part), discarded=e.discard_partial)
                 if e.discard_partial:
                     part.unlink(missing_ok=True)
                 if attempt < self.retry.max_attempts:
                     delay = self.retry.delay(attempt, self.rng.random())
                     log.warning("%s: attempt %d/%d failed: %s; retrying in %.1fs",
                                 tag, attempt, self.retry.max_attempts, e, delay)
+                    self._emit("backoff", logger_id=s.logger_id, session_id=s.session_id,
+                               seconds=round(delay, 2))
                     self.sleep(delay)
                 else:
                     log.error("%s: attempt %d/%d failed: %s; giving up for this run",
@@ -205,6 +248,8 @@ class Downloader:
             except _GiveUp as e:
                 self.db.finish_transfer(transfer_id, "error", received,
                                         time.monotonic() - t0, str(e))
+                self._emit("finish", logger_id=s.logger_id, session_id=s.session_id,
+                           outcome="error", status=e.status, bytes=received, error=str(e))
                 self.db.set_status(s.logger_id, s.session_id, e.status, error=str(e))
                 log.error("%s: %s", tag, e)
                 return SessionResult(s.session_id, e.status, attempt, total_received, str(e))
@@ -257,6 +302,9 @@ class Downloader:
                                          discard_partial=True)
                         if self.progress:
                             self.progress(s.session_id, pos, s.size_bytes)
+                        if self.listener:
+                            self._emit("progress", logger_id=s.logger_id,
+                                       session_id=s.session_id, done=pos, size=s.size_bytes)
                 except LoggerError as e:
                     f.flush()
                     os.fsync(f.fileno())
