@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+/* Western University palette: Western Purple plus neutral greys. */
+@theme {
+  --color-purple-western: #4f2683;
+  --color-purple-deep: #2f1650;
+  --color-purple-mist: #ece6f5;
+  --color-silver: #807f83;
+  --color-close: #d9a520;
+  --font-sans: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html {
+  background: #f7f5fb;
+  color: #1d1528;
+}
+@media (prefers-color-scheme: dark) {
+  html {
+    background: #140b22;
+    color: #ece6f5;
+  }
+}
+
+@keyframes flip-in {
+  from { transform: rotateX(90deg); opacity: 0; }
+  to { transform: rotateX(0); opacity: 1; }
+}
+.flip-in {
+  animation: flip-in 0.35s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .flip-in { animation: none; }
+}

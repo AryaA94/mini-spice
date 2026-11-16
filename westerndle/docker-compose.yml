@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: westerndle
+      POSTGRES_PASSWORD: westerndle
+      POSTGRES_DB: westerndle
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U westerndle"]
+      interval: 2s
+      retries: 15
+
+  app:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: postgresql://westerndle:westerndle@db:5432/westerndle
+      # Set a real secret in production: it decides the daily order.
+      WESTERNDLE_SECRET: ${WESTERNDLE_SECRET:-change-me}
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  pgdata:
