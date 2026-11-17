@@ -5,13 +5,21 @@
 import * as THREE from "./three.module.min.js";
 import { OrbitControls } from "./OrbitControls.js";
 import { RoomEnvironment } from "./RoomEnvironment.js";
-import { GCODE, STOCK, POCKET, TOOLS, CHECK } from "./intro-gcode.js";
+import { GCODE as CHECKED_GCODE, CHECK } from "./intro-gcode.js";
+import { TOOLS, POCKET_DEPTH, MAIN_POCKET, EXP_BOARD, plan, layout, program } from "./fixture.js";
 
 // canvas text (part markings, silkscreen) needs the web font loaded first
 await Promise.race([document.fonts ? document.fonts.ready : Promise.resolve(), new Promise((r) => setTimeout(r, 1500))]);
 
 const PROJECTS = window.PROJECTS || [];
 const PROFILE = window.PROFILE || {};
+// the plate grows with the project list: see js/fixture.js
+const PLAN = plan(PROJECTS);
+const LAY = layout(PLAN.exp.length);
+const GCODE = program(LAY);
+const STOCK = LAY.stock;
+const STOCK_ZC = -(STOCK.y[0] + STOCK.y[1]) / 2; // scene z of the plate's centre
+const STOCK_D = STOCK.y[1] - STOCK.y[0];
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safeUrl = (u) => (/^\s*(javascript|data|vbscript):/i.test(String(u || "")) ? "#" : String(u || "#"));
@@ -60,7 +68,13 @@ const key = new THREE.DirectionalLight(0xfff0dc, 2.3);
 key.position.set(-150, 320, 190);
 key.castShadow = true;
 key.shadow.mapSize.set(lite ? 1024 : 2048, lite ? 1024 : 2048);
-Object.assign(key.shadow.camera, { left: -180, right: 180, top: 180, bottom: -180, near: 50, far: 800 });
+{
+  const half = Math.max(STOCK.x[1] - STOCK.x[0], STOCK_D) / 2 + 40;
+  Object.assign(key.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 50, far: 900 });
+  key.position.z += STOCK_ZC;
+  key.target.position.set(0, 0, STOCK_ZC);
+  scene.add(key.target);
+}
 key.shadow.bias = -0.0008;
 key.shadow.normalBias = 1.2;
 scene.add(key);
@@ -83,13 +97,13 @@ function fitDistance(width, height) {
   return Math.max(width / 2 / Math.tan(hfov / 2), height / 2 / Math.tan(vfov / 2));
 }
 function overviewPose() {
-  const target = new THREE.Vector3(0, -4, small ? 2 : 0);
-  const d = fitDistance(small ? 172 : 270, small ? 150 : 200);
+  const target = new THREE.Vector3(0, -4, STOCK_ZC + (small ? 0 : 6));
+  const d = fitDistance(small ? 226 : 290, STOCK_D * 1.02 + 16);
   return { pos: target.clone().addScaledVector(OVERVIEW_DIR, d), target };
 }
 function introPose() {
-  const target = new THREE.Vector3(0, -6, 0);
-  const d = fitDistance(small ? 250 : 320, 230);
+  const target = new THREE.Vector3(0, -6, STOCK_ZC);
+  const d = fitDistance(small ? 250 : 320, STOCK_D * 0.95 + 20);
   return { pos: target.clone().addScaledVector(INTRO_DIR, d), target };
 }
 
@@ -420,10 +434,14 @@ function showLine(li) {
   const tm = op.match(/ - (.*)/);
   opTool.textContent = tm ? tm[1] : "";
 }
-if (CHECK) {
+if (CHECK && GCODE === CHECKED_GCODE) {
   const l = CHECK.lint, s = CHECK.stats.time_s.total;
   $("#check-text").textContent = `${l.errors} errors · ${l.warnings} warnings · ${Math.floor(s / 60)} min ${Math.round(s % 60)} s on a benchtop mill · ${CHECK.stats.lines} lines`;
-} else $("#check-text").textContent = `${prog.lines.length} lines`;
+} else {
+  // projects changed since the last check: still real G-code, just not re-checked yet
+  document.querySelector(".check-title").textContent = "G-code generated for this portfolio";
+  $("#check-text").textContent = `${prog.lines.length} lines · ${LAY.pockets.length} pockets`;
+}
 
 /* playback */
 const sim = { t: 0, i: 0, u: 0, spin: false, tool: 1, running: false, done: false };
@@ -475,8 +493,8 @@ function machineInstantly() {
 
 const BW = 160, BH = 102, BT = 1.6; // board size, mm
 const boardRoot = new THREE.Group(); // board origin: centre of its bottom face
-const BOARD_Y = -POCKET.depth;
-const BOARD_Z = -(POCKET.y[0] + POCKET.y[1]) / 2;
+const BOARD_Y = -POCKET_DEPTH;
+const BOARD_Z = -(MAIN_POCKET.y[0] + MAIN_POCKET.y[1]) / 2;
 boardRoot.position.set(0, 140, BOARD_Z);
 boardRoot.visible = false;
 scene.add(boardRoot);
@@ -611,6 +629,25 @@ const MODELS = {
     for (const z of [-2, 2]) g.add(cyl(1.4, 0.6, M.tin, 16, 8, z));
     return { group: g, w: 38, h: 22, top: 13, cx: 1 };
   },
+  ledcube() {
+    // 3x3x3 cube on a little perfboard, with the DIP switch that picks the pattern
+    const g = new THREE.Group(), leds = [];
+    g.add(box(17, 0.8, 17, M.substrate, -3, 0, 0));
+    for (let l = 0; l < 3; l++) for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+      const mat = new THREE.MeshStandardMaterial({ color: 0x9fc2ff, emissive: 0x3d7bff, emissiveIntensity: 0, roughness: 0.15, transparent: true, opacity: 0.9 });
+      const m = new THREE.Mesh(new THREE.SphereGeometry(1.25, 14, 10), mat);
+      m.position.set(-3 + (c - 1) * 5, 3.2 + l * 4.5, (r - 1) * 5);
+      m.castShadow = true;
+      g.add(m);
+      leds.push({ mat, l, r, c });
+    }
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) g.add(cyl(0.18, 12.5, M.tin, -3 + (c - 1) * 5, 0.8, (r - 1) * 5, 6));
+    for (let l = 0; l < 3; l++) for (let r = 0; r < 3; r++) { const w = box(10.5, 0.3, 0.3, M.tin, -3, 2.1 + l * 4.5, (r - 1) * 5); g.add(w); }
+    const dip = box(4, 1.8, 11, new THREE.MeshStandardMaterial({ color: 0xd63a3a, roughness: 0.5 }), 9.5, 0, 0);
+    g.add(dip);
+    for (let k = 0; k < 8; k++) g.add(box(1.4, 0.5, 0.8, M.white, 9.5, 1.8, -4.4 + k * 1.26));
+    return { group: g, w: 26, h: 18, top: 14, cx: 0, extra: { leds } };
+  },
   oled(p) {
     const g = new THREE.Group();
     g.add(box(27, 1.2, 27, M.oledPcb));
@@ -685,50 +722,31 @@ const oled = (() => {
   };
 })();
 
-// ---- layout: software on the left, hardware on the right
-const SPECIAL = {
-  "mini-spice": { kind: "qfp", at: [-50, 24] },
-  "gcode-sim": { kind: "bga", at: [-16, 24] },
-  "purple-plow": { kind: "driver", at: [-12, -27] },
-  "cnc-tool-wear": { kind: "esp32", at: [52, 25] },
-};
-const SLOTS = { software: [[-36, -4], [-14, -4]], hardware: [[30, -24], [58, -24], [46, -4]] };
-
+// ---- layout (js/fixture.js): featured projects on the main board, the rest
+// on expansion boards that hang off it by ribbon cable
 const parts = [];
 const hits = [];
-function addPart(spec) {
+function addPart(spec, parent = boardRoot) {
   const built = MODELS[spec.kind](spec.project || {}, spec.ref);
   const { group } = built;
   const [bx, by] = spec.at;
   group.position.copy(P(bx, by));
-  boardRoot.add(group);
+  parent.add(group);
   const cx = built.cx || 0;
   const hit = new THREE.Mesh(new THREE.BoxGeometry(built.w + 2, built.top + 4, built.h + 2), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
   hit.position.set(cx, (built.top + 4) / 2, 0);
   group.add(hit);
-  const part = { ...spec, ...built, cx, base: group.position.clone(), lift: 0, liftT: 0, tilt: 0, tiltT: 0, energized: false };
+  const part = { ...spec, ...built, cx, parent, base: group.position.clone(), lift: 0, liftT: 0, tilt: 0, tiltT: 0, energized: false };
   hit.userData.part = part;
   hits.push(hit);
   parts.push(part);
   return part;
 }
-
+const refOf = (p) => "U" + (PROJECTS.indexOf(p) + 1);
+const typeOf = (p) => (p.type === "hardware" ? "hardware" : "software");
 const projectParts = [];
-{
-  const used = { software: 0, hardware: 0 };
-  PROJECTS.forEach((p, i) => {
-    const ref = "U" + (i + 1);
-    const sp = SPECIAL[p.slug];
-    const type = p.type === "hardware" ? "hardware" : "software";
-    let at = sp?.at, kind = sp?.kind;
-    if (!at) {
-      at = SLOTS[type][used[type]++];
-      kind = type === "hardware" ? "module" : "soic";
-    }
-    if (!at) return; // board is full; the project is still in the legend and list view
-    projectParts.push(addPart({ key: p.slug, ref, kind, at, project: p, label: p.title, type }));
-  });
-}
+for (const m of PLAN.main) projectParts.push(addPart({ key: m.project.slug, ref: refOf(m.project), kind: m.kind, at: m.at, project: m.project, label: m.project.title, type: typeOf(m.project) }));
+const mainParts = [...projectParts];
 const aboutPart = addPart({ key: "about", ref: "DS1", kind: "oled", at: [-40, -29], label: "About me", type: "about" });
 const contactPart = addPart({ key: "contact", ref: "J1", kind: "usbc", at: [-71, -45], label: "Contact", type: "contact" });
 
@@ -743,7 +761,7 @@ const sw = (() => {
   const hit = new THREE.Mesh(new THREE.BoxGeometry(14, 10, 10), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
   hit.position.y = 4;
   g.add(hit);
-  const part = { key: "power", ref: "SW1", label: "Power switch", type: "power", group: g, w: 10, h: 6, top: 6, cx: 0, base: g.position.clone(), lift: 0, liftT: 0, tilt: 0, tiltT: 0, at: [-71, -31] };
+  const part = { key: "power", ref: "SW1", label: "Power switch", type: "power", group: g, parent: boardRoot, w: 10, h: 6, top: 6, cx: 0, base: g.position.clone(), lift: 0, liftT: 0, tilt: 0, tiltT: 0, at: [-71, -31] };
   hit.userData.part = part;
   hits.push(hit);
   return { g, lever, part };
@@ -759,32 +777,69 @@ for (const [x, y, r, h] of [[-62, -19, 3.2, 8], [-62, -11, 2.5, 6.5]]) {
 }
 for (let k = 0; k < 6; k++) { const c = box(1.6, 0.6, 0.8, M.ceramic); c.position.copy(P(-54 + k * 3, 6 - 3.2)); boardRoot.add(c); }
 
+// 2x5 ribbon headers: J2 on the main board, IN/OUT on each expansion board
+function header(parent, bx, by, vertical = false) {
+  const g = new THREE.Group();
+  g.add(box(13, 4.2, 6, M.plastic));
+  g.add(box(10.5, 0.4, 3.2, new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.9 }), 0, 4.2, 0));
+  if (vertical) g.rotation.y = Math.PI / 2;
+  g.position.copy(P(bx, by));
+  parent.add(g);
+  return g;
+}
+const J2_AT = [0, -46];
+const j2 = header(boardRoot, ...J2_AT);
+
 /* nets: USB-C -> switch -> a bus across the board -> a branch to every part */
 const BUS_Y = 6.5;
-const nets = [];
+const mainNets = [];
 function pathLen(pts) { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return L; }
+// a branch from a horizontal bus at busY to the near edge of a part
+function branch(part, busY, atBus) {
+  const [bx, by] = part.at, ax = bx + part.cx;
+  const above = by > busY, s = above ? 1 : -1;
+  const edge = above ? by - part.h / 2 - 0.5 : by + part.h / 2 + 0.5;
+  const x0 = ax - 4;
+  const pts = (edge - (busY + s * 4)) * s > 0 ? [[x0, busY], [ax, busY + s * 4], [ax, edge]] : [[x0, busY], [ax, edge]];
+  part.netEnd = atBus(x0) + pathLen(pts);
+  return { pts, d0: atBus(x0) };
+}
+let j2D;
 {
   const feed = [[-71, -41], [-71, -33.5]];
-  nets.push({ pts: feed, d0: 0 });
+  mainNets.push({ pts: feed, d0: 0 });
   const busStart = [[-71, -28.5], [-71, BUS_Y - 4], [-67, BUS_Y]];
   const d1 = pathLen(feed) + 5;
-  nets.push({ pts: busStart, d0: d1 });
+  mainNets.push({ pts: busStart, d0: d1 });
   const busX0 = -67, busD0 = d1 + pathLen(busStart);
-  const busX1 = 72;
-  nets.push({ pts: [[busX0, BUS_Y], [busX1, BUS_Y]], d0: busD0 });
+  mainNets.push({ pts: [[busX0, BUS_Y], [72, BUS_Y]], d0: busD0 });
   const atBus = (x) => busD0 + (x - busX0);
-  for (const part of [...projectParts, aboutPart]) {
-    const [bx, by] = part.at, ax = bx + part.cx;
-    const above = by > BUS_Y;
-    const edge = above ? by - part.h / 2 - 0.5 : by + part.h / 2 + 0.5;
-    const s = above ? 1 : -1;
-    const x0 = ax - 4 * Math.sign(ax - busX0 || 1);
-    const pts = [[x0, BUS_Y], [ax, BUS_Y + s * 4], [ax, edge]];
-    if ((edge - (BUS_Y + s * 4)) * s < 0) pts.splice(2, 1, [ax, edge]); // very short branch
-    part.netEnd = atBus(x0) + pathLen(pts);
-    nets.push({ pts, d0: atBus(x0) });
-  }
+  for (const part of [...mainParts, aboutPart]) mainNets.push(branch(part, BUS_Y, atBus));
+  const toJ2 = [[10, BUS_Y], [10, -39], [6, -43]];
+  mainNets.push({ pts: toJ2, d0: atBus(10) });
+  j2D = atBus(10) + pathLen(toJ2);
 }
+
+/* expansion boards */
+const EXP_SLOTS = [[-24, 13], [24, 13], [-24, -15], [24, -15]];
+const EXP_IN = [0, 27], EXP_OUT = [43, 14];
+const expBoards = LAY.exps.map((e, k) => {
+  const group = new THREE.Group();
+  group.position.set(e.cx, 140, -e.cy);
+  group.visible = false;
+  scene.add(group);
+  const eb = { k, group, cx: e.cx, cy: e.cy, projects: PLAN.exp[k] || [], parts: [], nets: [] };
+  eb.parts = eb.projects.map((p, i) => {
+    const part = addPart({ key: p.slug, ref: refOf(p), kind: typeOf(p) === "hardware" ? "module" : "soic", at: EXP_SLOTS[i], project: p, label: p.title, type: typeOf(p) }, group);
+    projectParts.push(part);
+    return part;
+  });
+  eb.inHdr = header(group, ...EXP_IN);
+  eb.outHdr = k < LAY.exps.length - 1 ? header(group, ...EXP_OUT, true) : null;
+  return eb;
+});
+// world position of a header's top, for the ribbon cables
+const hdrTop = (hdr) => { const v = new THREE.Vector3(); hdr.getWorldPosition(v); v.y += 4.4; return v; };
 
 const traceUniforms = { uFront: { value: 0 }, uTime: { value: 0 }, uGain: { value: 1 }, uColor: { value: new THREE.Color(0xffd47a) } };
 function traceMaterial(gain) {
@@ -802,7 +857,7 @@ function traceMaterial(gain) {
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
 }
-function ribbon(width, y) {
+function ribbon(nets, width, y) {
   const pos = [], ds = [], idx = [];
   for (const net of nets) {
     let d = net.d0;
@@ -827,10 +882,82 @@ function ribbon(width, y) {
   g.setIndex(idx);
   return g;
 }
-const traceCore = new THREE.Mesh(ribbon(0.9, BT + 0.04), traceMaterial(1.25));
-const traceGlow = new THREE.Mesh(ribbon(3.4, BT + 0.03), traceMaterial(0.32));
-traceCore.renderOrder = traceGlow.renderOrder = 2;
-boardRoot.add(traceGlow, traceCore);
+function addTraces(parent, nets) {
+  const core = new THREE.Mesh(ribbon(nets, 0.9, BT + 0.04), traceMaterial(1.25));
+  const glow = new THREE.Mesh(ribbon(nets, 3.4, BT + 0.03), traceMaterial(0.32));
+  core.renderOrder = glow.renderOrder = 2;
+  parent.add(glow, core);
+}
+addTraces(boardRoot, mainNets);
+
+/* ribbon cables: J2 -> EXP1 IN, EXP1 OUT -> EXP2 IN, ... Positions use where the
+   boards end up, so they're built once and shown when the boards have landed. */
+const cables = [];
+function cableTexture() {
+  const c = document.createElement("canvas");
+  c.width = 64; c.height = 8;
+  const x = c.getContext("2d");
+  for (let k = 0; k < 10; k++) { x.fillStyle = k === 0 ? "#b8302e" : k % 2 ? "#9a9da3" : "#878a90"; x.fillRect(k * 6.4, 0, 6.4, 8); }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+const cableMat = new THREE.MeshStandardMaterial({ map: cableTexture(), roughness: 0.6, side: THREE.DoubleSide });
+function cableGeometry(a, b) {
+  const up = new THREE.Vector3(0, 1, 0);
+  const flat = new THREE.Vector3(b.x - a.x, 0, b.z - a.z);
+  const side = new THREE.Vector3().crossVectors(flat.lengthSq() > 1e-6 ? flat.normalize() : new THREE.Vector3(0, 0, 1), up).normalize();
+  const top = Math.max(a.y, b.y) + 16;
+  const curve = new THREE.CatmullRomCurve3([
+    a.clone(), a.clone().add(new THREE.Vector3(0, 7, 0)),
+    new THREE.Vector3((a.x + b.x) / 2, top, (a.z + b.z) / 2),
+    b.clone().add(new THREE.Vector3(0, 7, 0)), b.clone(),
+  ]);
+  const N = 48, w = 7.6, pos = [], uv = [], idx = [];
+  for (let i = 0; i <= N; i++) {
+    const p = curve.getPoint(i / N);
+    for (const s of [-1, 1]) { pos.push(p.x + side.x * s * w / 2, p.y, p.z + side.z * s * w / 2); uv.push(s < 0 ? 0 : 1, i / 4); }
+    if (i < N) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 2, k + 1, k + 3); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return { geo: g, length: curve.getLength() };
+}
+{
+  // place everything where it lands, measure, then put it back up for the drop
+  boardRoot.position.y = BOARD_Y;
+  for (const eb of expBoards) eb.group.position.y = BOARD_Y;
+  scene.updateMatrixWorld(true);
+  let from = j2, d = j2D;
+  for (const eb of expBoards) {
+    const { geo, length } = cableGeometry(hdrTop(from), hdrTop(eb.inHdr));
+    const m = new THREE.Mesh(geo, cableMat);
+    m.castShadow = true;
+    m.visible = false;
+    scene.add(m);
+    cables.push(m);
+    d += length;
+    // on the expansion board: IN header -> a bus across the middle -> the parts, and on to OUT
+    const busD0 = d + 24;
+    eb.nets.push({ pts: [[0, 24], [0, 0]], d0: d });
+    eb.nets.push({ pts: [[0, 0], [-40, 0]], d0: busD0 }, { pts: [[0, 0], [40, 0]], d0: busD0 });
+    const atBus = (x) => busD0 + Math.abs(x);
+    for (const part of eb.parts) eb.nets.push(branch(part, 0, atBus));
+    if (eb.outHdr) {
+      const toOut = [[40, 0], [43, 3], [43, 7.5]];
+      eb.nets.push({ pts: toOut, d0: atBus(40) });
+      d = atBus(40) + pathLen(toOut);
+      from = eb.outHdr;
+    }
+    addTraces(eb.group, eb.nets);
+  }
+  boardRoot.position.y = 140;
+  for (const eb of expBoards) eb.group.position.y = 140;
+}
 const maxNetD = Math.max(...parts.filter((p) => p.netEnd).map((p) => p.netEnd)) + 20;
 
 // one status LED per project, lit when the power reaches it
@@ -838,13 +965,91 @@ for (const part of projectParts) {
   const [bx, by] = part.at;
   const l = led(0x9b7bff, 0, 0);
   l.mesh.position.copy(P(bx + part.cx + part.w / 2 - 1, by + part.h / 2 + 2.2));
-  boardRoot.add(l.mesh);
+  part.parent.add(l.mesh);
   part.led = l;
 }
 
 /* the board itself, with its artwork painted on a canvas */
-let boardMat, boardEdgeMat, innerLayer;
+let innerLayer;
+const boardMats = [];
+const boardEdgeMat = new THREE.MeshStandardMaterial({ color: 0xb7a77a, roughness: 0.8, transparent: true });
+function boardMesh(tex, w, h) {
+  const shape = new THREE.Shape();
+  const r = 3, hw = w / 2, hh = h / 2;
+  shape.moveTo(-hw + r, -hh); shape.lineTo(hw - r, -hh); shape.quadraticCurveTo(hw, -hh, hw, -hh + r);
+  shape.lineTo(hw, hh - r); shape.quadraticCurveTo(hw, hh, hw - r, hh); shape.lineTo(-hw + r, hh);
+  shape.quadraticCurveTo(-hw, hh, -hw, hh - r); shape.lineTo(-hw, -hh + r); shape.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: BT, bevelEnabled: false, curveSegments: 6 });
+  geo.rotateX(-Math.PI / 2);
+  const mat = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.42, metalness: 0.05, clearcoat: 0.7, clearcoatRoughness: 0.25, transparent: true });
+  boardMats.push(mat);
+  const m = new THREE.Mesh(geo, [mat, boardEdgeMat]);
+  m.castShadow = m.receiveShadow = true;
+  return m;
+}
+
+// expansion boards: same purple, smaller, with a little humour for the empty spots
+function buildExpBoard(eb) {
+  const W = EXP_BOARD.w, H = EXP_BOARD.h, PX = lite ? 8 : 12;
+  const c = document.createElement("canvas");
+  c.width = W * PX; c.height = H * PX;
+  const x = c.getContext("2d");
+  const toC = (bx, by) => [(bx + W / 2) * PX, (H / 2 - by) * PX];
+  let seed = 31 + eb.k * 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  x.fillStyle = "#3a1d63"; x.fillRect(0, 0, c.width, c.height);
+  for (let k = 0; k < 900; k++) { x.fillStyle = `rgba(255,255,255,${rnd() * 0.025})`; x.fillRect(rnd() * c.width, rnd() * c.height, 2, 2); }
+  const ink = "rgba(244,238,250,.92)", dim = "rgba(244,238,250,.6)";
+  const line = (pts, w, col) => { x.strokeStyle = col; x.lineWidth = w * PX; x.lineCap = x.lineJoin = "round"; x.beginPath(); pts.forEach((p, i) => { const [X, Y] = toC(...p); i ? x.lineTo(X, Y) : x.moveTo(X, Y); }); x.stroke(); };
+  const text = (s, bx, by, mm, { weight = 500, align = "left", color = ink } = {}) => {
+    const [X, Y] = toC(bx, by);
+    x.fillStyle = color; x.textAlign = align; x.textBaseline = "middle";
+    x.font = `${weight} ${mm * PX}px "JetBrains Mono", monospace`;
+    x.fillText(s, X, Y);
+  };
+  const rect = (cx, cy, w, h, dash) => {
+    const [X, Y] = toC(cx - w / 2, cy + h / 2);
+    x.setLineDash(dash ? [0.9 * PX, 0.7 * PX] : []);
+    x.strokeStyle = dash ? dim : ink; x.lineWidth = 0.18 * PX;
+    x.strokeRect(X, Y, w * PX, h * PX);
+    x.setLineDash([]);
+  };
+  for (const n of eb.nets) line(n.pts, 0.9, "#6b3fa8");
+  EXP_SLOTS.forEach(([sx, sy], i) => {
+    const part = eb.parts[i];
+    if (part) {
+      rect(sx + part.cx, sy, part.w + 2, part.h + 2);
+      const ly = sy > 0 ? sy + part.h / 2 + 3 : sy - part.h / 2 - 3;
+      text(part.ref, sx - part.w / 2 - 1, ly, 2.2, { weight: 700 });
+      text(part.label.toUpperCase().slice(0, 22), sx - part.w / 2 + part.ref.length * 1.5 + 0.5, ly, 1.6);
+    } else {
+      // an unpopulated footprint, the way it'd be marked on a real board
+      rect(sx, sy, 18, 18, true);
+      text("DNP", sx, sy + 2.5, 4.2, { weight: 700, align: "center", color: dim });
+      text("RESERVED FOR", sx, sy - 2.6, 1.45, { align: "center", color: dim });
+      text("WHATEVER I BUILD NEXT", sx, sy - 4.8, 1.45, { align: "center", color: dim });
+    }
+  });
+  text(`EXP${eb.k + 1}`, -44, 28.5, 2.6, { weight: 700 });
+  text("EXPANSION BOARD", -35.5, 28.5, 1.6, { color: dim });
+  text("IN", 8, 27, 1.8, { weight: 700 });
+  if (eb.outHdr) text("OUT", 46.5, 4.5, 1.6, { weight: 700, align: "right" });
+  text(`REV ${new Date().getFullYear()}`, 44, 28.5, 1.5, { align: "right", color: dim });
+  for (const [mx, my] of [[-45, -29], [45, 29]]) {
+    const [X, Y] = toC(mx, my);
+    x.fillStyle = "#dcb060"; x.beginPath(); x.arc(X, Y, 1.9 * PX, 0, 7); x.fill();
+    x.fillStyle = "#0d0d10"; x.beginPath(); x.arc(X, Y, 1.05 * PX, 0, 7); x.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  tex.repeat.set(1 / W, 1 / H);
+  tex.offset.set(0.5, 0.5);
+  eb.group.add(boardMesh(tex, W, H));
+}
+
 function buildBoard() {
+  for (const eb of expBoards) buildExpBoard(eb);
   const PX = lite ? 8 : 12;
   const c = document.createElement("canvas");
   c.width = BW * PX; c.height = BH * PX;
@@ -861,7 +1066,7 @@ function buildBoard() {
   const line = (pts, w, col) => { x.strokeStyle = col; x.lineWidth = w * PX; x.lineCap = x.lineJoin = "round"; x.beginPath(); pts.forEach((p, i) => { const [X, Y] = toC(...p); i ? x.lineTo(X, Y) : x.moveTo(X, Y); }); x.stroke(); };
   const via = (bx, by) => { const [X, Y] = toC(bx, by); x.fillStyle = "#d9ae5b"; x.beginPath(); x.arc(X, Y, 0.55 * PX, 0, 7); x.fill(); x.fillStyle = "#1a0f2a"; x.beginPath(); x.arc(X, Y, 0.25 * PX, 0, 7); x.fill(); };
   const fan = [];
-  for (const part of [...projectParts, aboutPart]) {
+  for (const part of [...mainParts, aboutPart]) {
     const [bx, by] = part.at, cx = bx + part.cx, hw = part.w / 2, hh = part.h / 2;
     for (let k = 0; k < 7; k++) {
       const side = Math.floor(rnd() * 4);
@@ -880,13 +1085,13 @@ function buildBoard() {
     }
   }
   for (const f of fan) line(f, 0.32, "#56308c");
-  for (const n of nets) line(n.pts, 0.9, "#6b3fa8");
+  for (const n of mainNets) line(n.pts, 0.9, "#6b3fa8");
   for (const f of fan) via(...f[3]);
   for (let bxv = -60; bxv < 70; bxv += 17) via(bxv, BUS_Y + 2.2);
 
   // gold (ENIG) pads under the parts
   x.fillStyle = "#dcb060";
-  for (const part of [...projectParts, aboutPart, contactPart]) {
+  for (const part of [...mainParts, aboutPart, contactPart]) {
     const [bx, by] = part.at, cx = bx + part.cx;
     if (part.kind === "qfp" || part.kind === "bga" || part.kind === "soic") {
       const [X, Y] = toC(cx - part.w / 2 + 0.6, by + part.h / 2 - 0.6);
@@ -909,7 +1114,7 @@ function buildBoard() {
     x.strokeRect(X, Y, (part.w + 2) * PX, (part.h + 2) * PX);
     x.beginPath(); x.arc(X - 0.9 * PX, Y - 0.9 * PX, 0.45 * PX, 0, 7); x.fillStyle = ink; x.fill();
   };
-  for (const part of [...projectParts, aboutPart, contactPart]) {
+  for (const part of [...mainParts, aboutPart, contactPart]) {
     outline(part);
     const [bx, by] = part.at, cx = bx + part.cx;
     const above = part.at[1] > BUS_Y;
@@ -920,6 +1125,8 @@ function buildBoard() {
   }
   text("SW1 PWR", -76, -24, 1.9, { weight: 700 });
   text("C1", -58, -21, 1.5); text("C2", -58, -12, 1.5); text("D1", -61, -38, 1.5);
+  text("J2", -8, -44, 2.2, { weight: 700, align: "right" });
+  text("TO EXPANSION ↓", -8, -47.5, 1.5, { align: "right", color: "rgba(244,238,250,.65)" });
   // zones
   x.setLineDash([1.2 * PX, 1 * PX]); x.strokeStyle = "rgba(244,238,250,.45)"; x.lineWidth = 0.18 * PX;
   { const [X0, Y0] = toC(8, 48), [X1, Y1] = toC(8, -36); x.beginPath(); x.moveTo(X0, Y0); x.lineTo(X1, Y1); x.stroke(); }
@@ -946,18 +1153,7 @@ function buildBoard() {
   tex.repeat.set(1 / BW, 1 / BH);
   tex.offset.set(0.5, 0.5);
 
-  const shape = new THREE.Shape();
-  const r = 3, w = BW / 2, h = BH / 2;
-  shape.moveTo(-w + r, -h); shape.lineTo(w - r, -h); shape.quadraticCurveTo(w, -h, w, -h + r);
-  shape.lineTo(w, h - r); shape.quadraticCurveTo(w, h, w - r, h); shape.lineTo(-w + r, h);
-  shape.quadraticCurveTo(-w, h, -w, h - r); shape.lineTo(-w, -h + r); shape.quadraticCurveTo(-w, -h, -w + r, -h);
-  const geo = new THREE.ExtrudeGeometry(shape, { depth: BT, bevelEnabled: false, curveSegments: 6 });
-  geo.rotateX(-Math.PI / 2);
-  boardMat = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.42, metalness: 0.05, clearcoat: 0.7, clearcoatRoughness: 0.25, transparent: true });
-  boardEdgeMat = new THREE.MeshStandardMaterial({ color: 0xb7a77a, roughness: 0.8, transparent: true });
-  const board = new THREE.Mesh(geo, [boardMat, boardEdgeMat]);
-  board.castShadow = board.receiveShadow = true;
-  boardRoot.add(board);
+  boardRoot.add(boardMesh(tex, BW, BH));
 
   // inner ground plane, only shown in X-ray
   const ic = document.createElement("canvas");
@@ -1004,15 +1200,15 @@ function setPhase(p) {
 }
 
 let boardDrop = null;
+const allBoards = [boardRoot, ...expBoards.map((e) => e.group)];
 function finishMachining(fast) {
   store.set("aa-machined", "1");
   sim.spin = false;
   const from = toolRig.position.clone();
   anims.push({ dur: fast ? 0.01 : 0.9, f: (t) => { toolRig.position.set(from.x * (1 - t), from.y + (260 - from.y) * easeInOut(t), from.z + (-60 - from.z) * t); }, done: () => { toolRig.visible = false; } });
   const go = () => {
-    boardRoot.visible = true;
-    boardDrop = { t: fast ? 1 : 0, delay: fast ? 0 : 0.45, dur: 1.15 };
-    if (fast) boardRoot.position.y = BOARD_Y;
+    for (const g of allBoards) g.visible = true;
+    boardDrop = { t: fast ? 99 : 0, delay: fast ? 0 : 0.45, dur: 1.15, stagger: 0.18 };
     setPhase("board");
     flyTo(overviewPose(), fast ? 0.9 : 1.6);
     const wait = fast || reduced ? 300 : 2200;
@@ -1082,6 +1278,7 @@ function setHover(part, fromLegend = false) {
     tip.innerHTML = describe(part);
     tip.classList.toggle("on", !fromLegend);
     const [bx, by] = part.at;
+    if (outline.parent !== part.parent) part.parent.add(outline);
     outline.position.x = bx + part.cx; outline.position.z = -by;
     sizeOutline(part.w + 3, part.h + 3);
     outlineMat.opacity = 1;
@@ -1138,10 +1335,12 @@ function panelHTML(key) {
     `<p class="p-ref mono">${part ? part.ref + " · " : ""}${esc(p.type).toUpperCase()}</p>`,
     `<h2 class="p-title" id="panel-title">${esc(p.title)}</h2>`,
     `<p class="p-tag">${esc(p.tagline)}</p>`,
+    p.cover ? `<figure class="p-photo"><img src="${esc(safeUrl(p.cover))}" alt="${esc(p.title)}" loading="lazy"></figure>` : "",
     `<div class="chips"><span class="chip ${p.type === "hardware" ? "hw" : "sw"}">${esc(p.type)}</span><span class="chip">${esc(p.year)}</span>${p.status ? `<span class="chip">${esc(p.status)}</span>` : ""}${p.role ? `<span class="chip">${esc(p.role)}</span>` : ""}</div>`,
     `<p class="p-summary">${esc(p.summary)}</p>`,
     ...(p.sections || []).map((s) => `<div class="p-sec"><h3>${esc(s.heading)}</h3><p>${s.body}</p></div>`),
     (p.specs || []).length ? `<div class="sheet"><div class="sheet-head mono"><span>Datasheet</span><span>${part ? part.ref : ""}</span></div><table>${p.specs.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}</table></div>` : "",
+    (p.gallery || []).length ? `<div class="p-gallery">${p.gallery.map((g) => `<figure><img src="${esc(safeUrl(g.src))}" alt="${esc(g.caption || p.title)}" loading="lazy">${g.caption ? `<figcaption class="mono">${esc(g.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : "",
     (p.links || []).length ? linksHTML(p.links) : "",
   ];
 }
@@ -1228,8 +1427,8 @@ function setView(v) {
   document.querySelectorAll(".views button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === v)));
   const xray = v === "xray";
   for (const m of xrayMats) { m.transparent = true; m.opacity = xray ? 0.22 : 1; m.depthWrite = !xray; m.needsUpdate = true; }
-  if (boardMat) {
-    boardMat.opacity = xray ? 0.28 : 1; boardMat.depthWrite = !xray;
+  if (innerLayer) {
+    for (const m of boardMats) { m.opacity = xray ? 0.28 : 1; m.depthWrite = !xray; }
     boardEdgeMat.opacity = xray ? 0.3 : 1;
     innerLayer.visible = xray;
     innerLayer.material.opacity = xray ? 0.7 : 0;
@@ -1325,8 +1524,8 @@ $("#replay").addEventListener("click", () => {
   sw.lever.position.x = -2.2;
   clearTimeout(state.autoPower);
   $("#power-hint").classList.remove("on");
-  boardRoot.visible = false;
-  boardRoot.position.y = 140;
+  for (const g of allBoards) { g.visible = false; g.position.y = 140; }
+  for (const c of cables) c.visible = false;
   boardDrop = null;
   resetStock();
   Object.assign(sim, { t: 0, i: 0, u: 0, spin: false, tool: 1, done: false });
@@ -1362,9 +1561,13 @@ function tick(now) {
 
   if (boardDrop) {
     boardDrop.t += rdt;
-    const u = clamp((boardDrop.t - boardDrop.delay) / boardDrop.dur, 0, 1);
-    boardRoot.position.y = 140 + (BOARD_Y - 140) * easeBack(u);
-    if (u >= 1) boardDrop = null;
+    let landed = true;
+    allBoards.forEach((g, i) => {
+      const u = clamp((boardDrop.t - boardDrop.delay - i * boardDrop.stagger) / boardDrop.dur, 0, 1);
+      g.position.y = 140 + (BOARD_Y - 140) * easeBack(u);
+      if (u < 1) landed = false;
+    });
+    if (landed) { boardDrop = null; for (const c of cables) c.visible = true; }
   }
 
   if (camTween) {
@@ -1389,9 +1592,20 @@ function tick(now) {
   for (const part of projectParts) {
     const on = state.powered && state.front >= part.netEnd;
     if (on !== part.energized) { part.energized = on; part.led.mat.emissiveIntensity = on ? 3 : 0; }
-    if (part.extra) {
+    if (part.extra && part.extra.ok) {
       part.extra.ok.mat.emissiveIntensity = on ? 3 : 0;
       part.extra.bad.mat.emissiveIntensity = on && Math.sin(now / 260) > 0.92 ? 3 : 0;
+    }
+    if (part.extra && part.extra.leds) {
+      // cycle through a few patterns, like the DIP switch would
+      const t = now / 1000, mode = Math.floor(t / 4) % 3;
+      for (const L of part.extra.leds) {
+        let lit;
+        if (mode === 0) lit = L.l === Math.floor(t * 3) % 3;
+        else if (mode === 1) lit = (L.c + L.r + L.l) % 3 === Math.floor(t * 4) % 3;
+        else lit = L.l * 9 + L.r * 3 + L.c === Math.floor(t * 9) % 27;
+        L.mat.emissiveIntensity = on && lit ? 3.2 : 0;
+      }
     }
   }
   oled.tick(now);

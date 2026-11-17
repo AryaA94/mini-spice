@@ -6,7 +6,7 @@
   "max_feed_mm_min": 4000,
   "junction_deviation_mm": 0.01,
   "tool_change_time_s": 5,
-  "travel_mm": { "x": [-250, 250], "y": [-200, 200], "z": [-200, 0] },
+  "travel_mm": { "x": [-250, 250], "y": [-400, 200], "z": [-200, 0] },
   "work_offsets": {
     "G54": { "x": 0, "y": 0, "z": -100 }
   },

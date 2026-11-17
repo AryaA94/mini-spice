@@ -94,6 +94,43 @@ window.PROJECTS = [
     accent: "#4fb3a9",
   },
   {
+    slug: "led-matrix",
+    title: "3×3×3 LED cube",
+    tagline: "27 LEDs in a cube, driven by an Arduino Uno through multiplexing.",
+    type: "hardware",
+    year: 2026,
+    status: "Built",
+    role: "Design, soldering, firmware",
+    tags: ["Arduino", "C++", "Multiplexing", "Soldering", "Tinkercad"],
+    cover: "img/led-matrix.jpg",
+    summary:
+      "A 3D LED matrix where all 27 LEDs can be addressed one at a time, using multiplexing to get around the Uno's limited GPIO pins. A DIP switch on the breadboard picks which lighting pattern runs.",
+    specs: [
+      ["Controller", "Arduino Uno"],
+      ["LEDs", "27 (3 layers × 9 columns)"],
+      ["Addressing", "Multiplexed: 9 column pins + 3 layer pins"],
+      ["Input", "8-position DIP switch selects the pattern"],
+      ["Firmware", "C++ (Arduino)"],
+      ["Prototyped in", "Tinkercad"],
+    ],
+    sections: [
+      {
+        heading: "How it works",
+        body: "Each column of three LEDs shares an anode pin and each layer shares a cathode, so 12 pins control 27 LEDs. The firmware lights one layer at a time fast enough that the eye sees the whole pattern at once.",
+      },
+      {
+        heading: "Build",
+        body: "I simulated the circuit and wiring in Tinkercad first, then built the cube on cardboard jigs so the legs lined up before soldering, which kept it mechanically solid and the wiring reliable.",
+      },
+      {
+        heading: "Firmware",
+        body: "Multi-layer lighting patterns written in C++, with the DIP switch read at runtime to switch between them.",
+      },
+    ],
+    links: [],
+    accent: "#4f8ef0",
+  },
+  {
     slug: "gcode-sim",
     title: "gcode-sim",
     tagline: "Check, time, cost and plan CNC milling programs in the browser.",
@@ -191,6 +228,6 @@ window.PROFILE = {
   links: [
     { label: "Email", href: "mailto:vj7386071@gmail.com" },
     { label: "GitHub", href: "https://github.com/AryaA94" },
-    // { label: "LinkedIn", href: "https://www.linkedin.com/in/YOUR-HANDLE" },
+    { label: "LinkedIn", href: "https://www.linkedin.com/in/arya-ananda-3a2901280" },
   ],
 };

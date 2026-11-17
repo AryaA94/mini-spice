@@ -19,14 +19,21 @@ All content is in `projects.js`:
   `"software"`); the fields are documented at the top of the file.
 - `PROFILE`: name, intro, About text, email and links.
 
-On the 3D board, the four current projects have hand-placed parts (see
-`SPECIAL` in `js/board.js`). A new project is placed automatically in a
-free slot on its side of the board: software on the left, hardware on the
-right.
+On the 3D board, featured projects have hand-placed parts (`SPECIAL` in
+`js/fixture.js`). Any other project goes in a free slot on the main board,
+then onto expansion boards (4 projects each) that sit in their own pockets
+below it, daisy-chained by ribbon cable. Empty spots are marked "DNP". Add
+enough projects and the plate, its pockets and the machining all grow:
+the G-code is generated from the project list.
+
+After adding projects, re-run `tools/gen-intro.mjs` with gcode-sim so the
+page can show the checked result again; until then it shows the program
+without the check.
 
 ## The machining intro
 
-`tools/gen-intro.mjs` writes `intro.nc` and `js/intro-gcode.js`. Given a
+`js/fixture.js` builds the program from the project list.
+`tools/gen-intro.mjs` writes it to `intro.nc` and `js/intro-gcode.js`. Given a
 [gcode-sim](https://github.com/AryaA94/G-Code) binary, it also lints and
 times the program against `tools/machine.json`, and the page shows the
 result:
