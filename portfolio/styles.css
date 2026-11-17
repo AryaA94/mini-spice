@@ -101,6 +101,7 @@ body::after {
 .nav-links { display: flex; gap: 6px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; }
 .nav-links a { padding: 6px 14px; border-radius: 999px; font-size: 14px; color: var(--ink-2); transition: color .25s, background .25s; }
 .nav-links a:hover { color: var(--ink); background: var(--line); }
+.nav-links .nav-3d { color: var(--copper); }
 .nav-meta { display: flex; align-items: center; gap: 14px; color: var(--ink-2); }
 .live { display: inline-flex; align-items: center; gap: 8px; }
 .live i { width: 6px; height: 6px; border-radius: 50%; background: var(--mask); animation: blink 2s infinite; }

@@ -1,36 +1,53 @@
 # Portfolio site
 
-A single-page site for showing hardware and software projects. Plain
-HTML/CSS/JS with no build step: open `index.html` in a browser.
+Arya Ananda's portfolio. Plain HTML/CSS/JS, no build step.
+
+- `index.html`: the 3D landing page. A block of aluminium is machined by
+  real G-code (`intro.nc`), then a circuit board drops into the pocket.
+  Every part on the board is a project; click one to open it. It also has
+  an X-ray view and a schematic view.
+- `work.html`: the same projects as a plain list (also where the 3D page
+  sends browsers without WebGL).
+
+Both pages read everything from `projects.js`.
 
 ## Editing
 
-Everything you'd change lives in `projects.js`:
+All content is in `projects.js`:
 
-- `PROJECTS`: one object per project (`type` is `"hardware"` or `"software"`).
-  The fields are documented at the top of the file.
-- `PROFILE`: your name, role, intro, email and links.
+- `PROJECTS`: one object per project (`type` is `"hardware"` or
+  `"software"`); the fields are documented at the top of the file.
+- `PROFILE`: name, intro, About text, email and links.
 
-Entries marked `placeholder: true` are samples and show a "Sample" badge.
-Replace them with your own projects.
+On the 3D board, the four current projects have hand-placed parts (see
+`SPECIAL` in `js/board.js`). A new project is placed automatically in a
+free slot on its side of the board: software on the left, hardware on the
+right.
 
-Projects without a `cover` image get a generated cover: a PCB layout for
-hardware, a code window for software. To use a photo instead, drop it in an
-`img/` folder and set `cover: "img/your-photo.jpg"`. Add more photos with
-`gallery: [{ src, caption }]`.
+## The machining intro
 
-## Features
+`tools/gen-intro.mjs` writes `intro.nc` and `js/intro-gcode.js`. Given a
+[gcode-sim](https://github.com/AryaA94/G-Code) binary, it also lints and
+times the program against `tools/machine.json`, and the page shows the
+result:
 
-- Interactive PCB-trace background in the hero: traces light up around the
-  cursor and clicking sends a pulse across the board
-- Hardware / Software / All filter (also via `?type=hardware` in the URL)
-- Grid view with 3D tilt, or an index list with a cursor-following preview
-- Project pages with a "datasheet" spec table, deep-linkable as `#/p/<slug>`;
-  arrow keys move between projects and Esc closes the page
-- Light and dark themes, a mobile layout, and reduced-motion support
+```sh
+node tools/gen-intro.mjs path/to/gcode-sim
+```
 
-## Hosting
+## Running locally
 
-Any static host works: GitHub Pages, Netlify, Vercel or Cloudflare Pages.
-For GitHub Pages, put these files in a `<username>.github.io` repository
-(or any repo with Pages enabled) and they'll be served as-is.
+The 3D page uses ES modules, so it needs to be served over HTTP (opening
+the file directly won't work):
+
+```sh
+python3 -m http.server 8000   # then open http://localhost:8000
+```
+
+## Notes
+
+- Three.js r170 is vendored in `js/` (MIT, see `js/THREE-LICENSE`), so the
+  Content-Security-Policy can stay `script-src 'self'`.
+- Phones get a lighter version (coarser height map, smaller shadow map).
+  With `prefers-reduced-motion`, or after the first visit, the intro is
+  skipped; "Machine it again" replays it.

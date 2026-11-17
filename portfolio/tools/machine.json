@@ -1,0 +1,18 @@
+{
+  "name": "Benchtop 3-axis mill",
+  "comment": "Machine the site's intro program is checked against with gcode-sim.",
+  "max_rate_mm_min": { "x": 6000, "y": 6000, "z": 3000 },
+  "accel_mm_s2": { "x": 400, "y": 400, "z": 250 },
+  "max_feed_mm_min": 4000,
+  "junction_deviation_mm": 0.01,
+  "tool_change_time_s": 5,
+  "travel_mm": { "x": [-250, 250], "y": [-200, 200], "z": [-200, 0] },
+  "work_offsets": {
+    "G54": { "x": 0, "y": 0, "z": -100 }
+  },
+  "tools": {
+    "1": { "diameter_mm": 20, "length_mm": 60, "comment": "20 mm face mill" },
+    "2": { "diameter_mm": 8, "length_mm": 55, "comment": "8 mm flat end mill" },
+    "3": { "diameter_mm": 1, "length_mm": 45, "comment": "60 degree engraver, 1 mm tip" }
+  }
+}
