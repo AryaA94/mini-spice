@@ -6,7 +6,12 @@
   status:      shown as a small badge, e.g. "Shipped", "In progress", "Prototype"
   cover:       optional path to an image (e.g. "img/psu.jpg"). Leave it out and
                the site draws a generated schematic / code-style cover instead.
-  gallery:     optional list of { src, caption } images for the detail page
+  dates:       optional, e.g. "Sep 2026 to present". Shown instead of the year
+               on the detail page.
+  gallery:     optional list of { src, caption } images for the detail page.
+               { placeholder: "[Photo: ...]" } shows a marked empty slot instead.
+  todo:        optional list of things still to add, shown as a marked
+               "To add" box on the detail page (e.g. "[GitHub repo link]").
   specs:       key/value rows for the "datasheet" table on the detail page
   sections:    the write-up, as { heading, body } blocks (body may use <b>, <a>, <code>)
   links:       { label, href } buttons on the detail page
@@ -129,6 +134,65 @@ window.PROJECTS = [
     ],
     links: [],
     accent: "#4f8ef0",
+  },
+  {
+    slug: "epaper-display",
+    title: "E-paper desk display",
+    tagline: "A desk display that shows only what I need while studying.",
+    type: "hardware",
+    year: 2026,
+    dates: "Sep 2026 to present",
+    status: "In progress",
+    tags: ["Raspberry Pi", "Python", "Altium Designer", "Power electronics", "I2C", "3D printing", "CAD"],
+    summary:
+      "Spotify now playing, a Pomodoro timer, weather and my calendar on a 4.2 inch e-paper screen. It runs on a Raspberry Pi Zero, gets power from a 12V to 5V converter board I designed, is controlled with a joystick, and sits in a 3D-printed case.",
+    specs: [
+      ["Computer", "Raspberry Pi Zero WH"],
+      ["Display", "WeAct Studio 4.2 inch e-paper, 400 × 300 px, SPI"],
+      ["Input", "KY-023 joystick through an ADS1115 16-bit ADC, I2C"],
+      ["Power", "Own 12V to 5V buck converter PCB, TI TPS54302, 44 × 22 mm"],
+      ["Software", "Python, Spotify Web API, systemd service"],
+      ["Case", "About 135 × 84 × 31 mm, PLA, prints without supports"],
+      ["Refresh times", "[Placeholder: full and partial refresh times]"],
+    ],
+    sections: [
+      {
+        heading: "What it does",
+        body: "Shows album art and track info from Spotify, converted to 1-bit with dithering so it looks right on e-paper. It also has a Pomodoro study timer, the weather and my Google Calendar events. I set it up and control it from a web page on my phone, so it needs no keyboard or screen, and it starts on its own at boot. On the device itself, the joystick does play/pause, next and previous, and holding it down shuts the Pi down safely.",
+      },
+      {
+        heading: "Hardware",
+        body: "A Raspberry Pi Zero WH drives a WeAct Studio 4.2 inch e-paper module (400 × 300 pixels) over SPI. The KY-023 joystick is analog and the Pi has no analog inputs, so it goes through an ADS1115 16-bit ADC over I2C. Press is play/pause, left and right are previous and next, up and down change volume or mode, and a long hold shuts down.",
+      },
+      {
+        heading: "Power board",
+        body: "A 12V to 5V buck converter I designed in Altium Designer to replace an off-the-shelf converter cable. It uses a TI TPS54302 regulator with a 10 µH inductor and follows TI's 5V reference design. The board is 44 × 22 mm and I soldered it by hand. I followed the datasheet's layout rules: input capacitors tight to VIN and a short switch node.",
+      },
+      {
+        heading: "Software",
+        body: "A Python app that talks to the Spotify Web API using the OAuth2 authorization code flow, refreshing the token when it expires. It draws the screen layouts, decides when to do a full or a partial e-paper refresh, and runs as a systemd service. A small web server serves the phone control page and the settings.",
+      },
+      {
+        heading: "Enclosure",
+        body: "A two-part case: a front body and a flat back lid, held together by six small magnets and a locating lip. It is about 135 × 84 × 31 mm with a slim bezel around the screen, the joystick on the right side with a separate knurled collar, and shallow V-groove panel lines. All ports are on the back, and there is an optional 15 degree desk dock. I modeled it as parametric CAD in Python with CadQuery, checked it for part collisions and printability, and designed every part to print without supports. It is printed in PLA on an Ultimaker S3 at the Mississauga library, about 6 to 8 hours of printing in total.",
+      },
+      {
+        heading: "What I learned",
+        body: "The difference between SPI and I2C, and why the joystick needed an ADC. How OAuth2 token refresh works. The trade-offs between full and partial e-paper refreshes. Buck converter layout rules from the datasheet. And how to design parts so they print without supports.",
+      },
+      {
+        heading: "Status",
+        body: "<b>Done:</b> the Pi software, Spotify, the timer, weather, calendar, the phone page, auto-start, the buck converter prototype and the enclosure CAD. <b>Still finishing:</b> joystick wiring and code, printing and assembling the case, and final photos.",
+      },
+    ],
+    gallery: [
+      { placeholder: "[Photo: finished device on desk]" },
+      { placeholder: "[Photo: buck converter PCB]" },
+      { placeholder: "[Photo or render: enclosure, open and closed]" },
+    ],
+    todo: ["[GitHub repo link]", "[Short demo video, optional]", "[Refresh rate and other measured data]"],
+    links: [],
+    accent: "#c9c4b6",
   },
   {
     slug: "gcode-sim",

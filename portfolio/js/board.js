@@ -648,6 +648,22 @@ const MODELS = {
     for (let k = 0; k < 8; k++) g.add(box(1.4, 0.5, 0.8, M.white, 9.5, 1.8, -4.4 + k * 1.26));
     return { group: g, w: 26, h: 18, top: 14, cx: 0, extra: { leds } };
   },
+  epaper() {
+    // WeAct 4.2" e-paper module with the joystick beside it. E-paper keeps its
+    // picture without power, so the screen shows whether the board is on or not.
+    const g = new THREE.Group();
+    g.add(box(24, 1, 19, M.substrate, -3, 0, 0));
+    g.add(box(21, 0.6, 15.5, M.glass, -3, 1, -0.6));
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(19.6, 14.2), new THREE.MeshStandardMaterial({ map: epaperTexture(), roughness: 0.9 }));
+    screen.rotation.x = -Math.PI / 2;
+    screen.position.set(-3, 1.62, -0.6);
+    g.add(screen);
+    // KY-023 joystick: base, gimbal and knurled cap
+    g.add(box(6, 1.6, 6, M.plastic, 12, 0, 0));
+    g.add(cyl(1, 4, M.tin, 12, 1.6, 0, 12));
+    g.add(cyl(2.6, 2.2, new THREE.MeshStandardMaterial({ color: 0x1e1e22, roughness: 0.7 }), 12, 5.2, 0, 18));
+    return { group: g, w: 30, h: 20, top: 7.4, cx: 1.5 };
+  },
   oled(p) {
     const g = new THREE.Group();
     g.add(box(27, 1.2, 27, M.oledPcb));
@@ -680,6 +696,36 @@ const MODELS = {
     return { group: g, w: 16, h: 16, top: 3 };
   },
 };
+// a 1-bit "now playing" screen with dithered art, like the real one renders
+function epaperTexture() {
+  const W = 400, H = 300;
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const x = c.getContext("2d");
+  x.fillStyle = "#e4e1d8"; x.fillRect(0, 0, W, H);
+  x.fillStyle = "#16161a";
+  const bayer = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+  for (let j = 0; j < 150; j += 2) for (let i = 0; i < 150; i += 2) {
+    const v = (Math.sin(i * 0.05) + Math.cos(j * 0.04) + (i + j) / 150) / 4 + 0.35;
+    if (v * 16 > bayer[(j / 2) % 4][(i / 2) % 4]) x.fillRect(20 + i, 24 + j, 2, 2);
+  }
+  x.strokeStyle = "#16161a"; x.lineWidth = 3; x.strokeRect(20, 24, 150, 150);
+  x.font = '700 22px "JetBrains Mono", monospace'; x.textBaseline = "top";
+  x.fillText("NOW PLAYING", 190, 30);
+  for (const [y, w] of [[70, 170], [100, 130], [130, 150]]) x.fillRect(190, y, w, 10);
+  x.fillRect(190, 160, 180, 4);
+  x.fillRect(190, 158, 70, 8);
+  x.fillRect(0, 200, W, 3);
+  x.font = '700 20px "JetBrains Mono", monospace';
+  x.fillText("POMODORO", 20, 222);
+  x.fillText("WEATHER", 160, 222);
+  x.fillText("CALENDAR", 280, 222);
+  for (const X of [20, 160, 280]) { x.fillRect(X, 254, 90, 8); x.fillRect(X, 270, 60, 8); }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
 function antennaTexture() {
   const c = document.createElement("canvas");
   c.width = 340; c.height = 130;
@@ -1336,12 +1382,13 @@ function panelHTML(key) {
     `<h2 class="p-title" id="panel-title">${esc(p.title)}</h2>`,
     `<p class="p-tag">${esc(p.tagline)}</p>`,
     p.cover ? `<figure class="p-photo"><img src="${esc(safeUrl(p.cover))}" alt="${esc(p.title)}" loading="lazy"></figure>` : "",
-    `<div class="chips"><span class="chip ${p.type === "hardware" ? "hw" : "sw"}">${esc(p.type)}</span><span class="chip">${esc(p.year)}</span>${p.status ? `<span class="chip">${esc(p.status)}</span>` : ""}${p.role ? `<span class="chip">${esc(p.role)}</span>` : ""}</div>`,
+    `<div class="chips"><span class="chip ${p.type === "hardware" ? "hw" : "sw"}">${esc(p.type)}</span><span class="chip">${esc(p.dates || p.year)}</span>${p.status ? `<span class="chip">${esc(p.status)}</span>` : ""}${p.role ? `<span class="chip">${esc(p.role)}</span>` : ""}</div>`,
     `<p class="p-summary">${esc(p.summary)}</p>`,
     ...(p.sections || []).map((s) => `<div class="p-sec"><h3>${esc(s.heading)}</h3><p>${s.body}</p></div>`),
     (p.specs || []).length ? `<div class="sheet"><div class="sheet-head mono"><span>Datasheet</span><span>${part ? part.ref : ""}</span></div><table>${p.specs.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}</table></div>` : "",
-    (p.gallery || []).length ? `<div class="p-gallery">${p.gallery.map((g) => `<figure><img src="${esc(safeUrl(g.src))}" alt="${esc(g.caption || p.title)}" loading="lazy">${g.caption ? `<figcaption class="mono">${esc(g.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : "",
+    (p.gallery || []).length ? `<div class="p-gallery">${p.gallery.map((g) => (g.src ? `<figure><img src="${esc(safeUrl(g.src))}" alt="${esc(g.caption || p.title)}" loading="lazy">${g.caption ? `<figcaption class="mono">${esc(g.caption)}</figcaption>` : ""}</figure>` : `<figure class="ph mono">${esc(g.placeholder || "[Photo]")}</figure>`)).join("")}</div>` : "",
     (p.links || []).length ? linksHTML(p.links) : "",
+    (p.todo || []).length ? `<div class="p-todo mono"><h3>To add</h3><ul>${p.todo.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "",
   ];
 }
 function openPanel(key) {

@@ -24,9 +24,10 @@ export const SPECIAL = {
   "purple-plow": { kind: "driver", at: [-12, -27] },
   "cnc-tool-wear": { kind: "esp32", at: [52, 25] },
   "led-matrix": { kind: "ledcube", at: [32, -19] },
+  "epaper-display": { kind: "epaper", at: [62, -14] },
 };
 // Free spots left on the main board for anything else, before it spills over.
-export const MAIN_SLOTS = { software: [[-36, -4]], hardware: [[46, -4]] };
+export const MAIN_SLOTS = { software: [[-36, -4]], hardware: [] };
 
 /** Where every project goes: { main: [{project, kind, at}], exp: [[project, ...], ...] }. */
 export function plan(projects) {

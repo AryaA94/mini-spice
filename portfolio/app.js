@@ -497,7 +497,7 @@
     const i = list.findIndex((x) => x.slug === p.slug), next = list[(i + 1) % list.length];
     $("#detail-crumb").textContent = `${p.type} / ${String(PROJECTS.indexOf(p) + 1).padStart(2, "0")} — ${p.title}`;
     const items = [
-      `<div class="d-chips"><span class="chip" style="--c:${esc(p.accent || "")}"><i></i>${esc(p.type)}</span><span class="chip">${esc(p.year)}</span>${p.status ? `<span class="chip">${esc(p.status)}</span>` : ""}${p.role ? `<span class="chip">${esc(p.role)}</span>` : ""}${p.placeholder ? '<span class="chip sample">Coming soon</span>' : ""}</div>`,
+      `<div class="d-chips"><span class="chip" style="--c:${esc(p.accent || "")}"><i></i>${esc(p.type)}</span><span class="chip">${esc(p.dates || p.year)}</span>${p.status ? `<span class="chip">${esc(p.status)}</span>` : ""}${p.role ? `<span class="chip">${esc(p.role)}</span>` : ""}${p.placeholder ? '<span class="chip sample">Coming soon</span>' : ""}</div>`,
       `<h2 class="d-title" id="detail-title">${esc(p.title)}</h2>`,
       `<p class="d-tagline">${esc(p.tagline)}</p>`,
       `<div class="d-cover">${coverHTML(p)}</div>`,
@@ -513,7 +513,8 @@
           ${(p.tags || []).length ? `<div class="d-tags">${p.tags.map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}
         </aside>
       </div>`,
-      (p.gallery || []).length ? `<div class="d-gallery">${p.gallery.map((g) => `<figure><img src="${esc(safeUrl(g.src))}" alt="${esc(g.caption || p.title)}" loading="lazy">${g.caption ? `<figcaption class="mono">${esc(g.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : "",
+      (p.gallery || []).length ? `<div class="d-gallery">${p.gallery.map((g) => (g.src ? `<figure><img src="${esc(safeUrl(g.src))}" alt="${esc(g.caption || p.title)}" loading="lazy">${g.caption ? `<figcaption class="mono">${esc(g.caption)}</figcaption>` : ""}</figure>` : `<figure class="ph mono">${esc(g.placeholder || "[Photo]")}</figure>`)).join("")}</div>` : "",
+      (p.todo || []).length ? `<div class="d-todo mono"><h3>To add</h3><ul>${p.todo.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "",
       list.length > 1 ? `<a class="d-next" href="#/p/${esc(next.slug)}" data-swap><span class="mono muted">Next project →</span><span>${esc(next.title)}</span></a>` : "",
     ].filter(Boolean);
     body.classList.remove("show");

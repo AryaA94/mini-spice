@@ -313,6 +313,10 @@ svg.cover { overflow: visible; }
 .d-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
 .d-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 56px; }
 .d-gallery figure { margin: 0; }
+.d-gallery .ph { display: grid; place-items: center; aspect-ratio: 4 / 3; padding: 16px; border: 1.5px dashed var(--line-2); border-radius: 10px; color: var(--ink-3); text-align: center; }
+.d-todo { margin-top: 32px; padding: 16px 18px; border: 1.5px dashed var(--line-2); border-radius: 10px; color: var(--ink-2); }
+.d-todo h3 { margin: 0 0 8px; font: 500 11px var(--mono); text-transform: uppercase; color: var(--copper); }
+.d-todo ul { margin: 0; padding-left: 18px; }
 .d-gallery img { border-radius: 10px; border: 1px solid var(--line); width: 100%; aspect-ratio: 4/3; object-fit: cover; }
 .d-gallery figcaption { margin-top: 8px; color: var(--ink-3); }
 .d-next { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin-top: 80px; padding-top: 28px; border-top: 1px solid var(--line); cursor: pointer; }
