@@ -162,6 +162,43 @@ body.phase-intro .dock { opacity: 0; transform: translateY(20px); pointer-events
 .p-skills ul { list-style: none; margin: 0; padding: 0; color: var(--ink-2); font-size: 14px; }
 .p-skills li { padding: 3px 0; }
 
+/* ---------- About: inside the OLED ---------- */
+.oled { position: fixed; inset: 0; z-index: 9; overflow-y: auto; background: #020305; color: #cdeeff; opacity: 0; transition: opacity .45s ease; font-family: var(--mono); }
+.oled.on { opacity: 1; }
+.oled[hidden] { display: block; visibility: hidden; }
+/* the pixel grid and a faint scanline, so it reads as the little screen up close */
+.oled::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 2;
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,.42) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,.32) 0 1px, transparent 1px 4px); }
+.oled::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 2; background: radial-gradient(120% 90% at 50% 40%, transparent 55%, rgba(0,0,0,.55)); }
+.oled-bar { position: sticky; top: 0; z-index: 3; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px var(--gut); color: #5f8aa6; background: linear-gradient(#020305 70%, transparent); }
+.oled-bar button { color: #cdeeff; padding: 8px 14px; border: 1px solid rgba(127,201,255,.35); border-radius: 999px; }
+.oled-bar button:hover { background: #cdeeff; color: #020305; }
+.oled-bar kbd { font: 10px var(--mono); margin-left: 6px; opacity: .6; }
+.oled-body { position: relative; z-index: 1; max-width: 780px; margin: 0 auto; padding: 8vh var(--gut) 90px; text-shadow: 0 0 6px rgba(127,201,255,.55), 0 0 18px rgba(127,201,255,.18); }
+.oled-body > * { opacity: 0; animation: oled-in .5s steps(6) forwards; animation-delay: calc(var(--i, 0) * 140ms + .55s); }
+.oled-body > .oled-hi { animation-delay: 0s; }
+@keyframes oled-in { to { opacity: 1; } }
+.oled-hi { font: 700 clamp(40px, 8vw, 96px)/1 var(--mono); letter-spacing: .02em; margin: 0 0 34px; color: #e6f7ff; }
+.oled-hi .cur { display: inline-block; width: .55em; height: .9em; margin-left: .08em; vertical-align: -.08em; background: #e6f7ff; animation: blink 1s steps(1) infinite; box-shadow: 0 0 12px rgba(127,201,255,.7); }
+@keyframes blink { 50% { opacity: 0; } }
+.oled-lead { font-size: clamp(19px, 2.3vw, 26px); line-height: 1.45; color: #e6f7ff; margin: 0 0 22px; }
+.oled-lead em { font-style: normal; color: #020305; background: #cdeeff; padding: 0 .25em; text-shadow: none; }
+.oled-body p { font-size: 15.5px; line-height: 1.7; margin: 0 0 16px; color: #a9d6f0; }
+.oled-body h3 { font: 700 13px var(--mono); letter-spacing: .08em; color: #7fc9ff; margin: 30px 0 10px; }
+.oled-body ul { list-style: none; padding: 0; margin: 0; }
+.oled-body li { padding: 5px 0 5px 22px; position: relative; color: #cdeeff; }
+.oled-body li::before { content: "■"; position: absolute; left: 0; font-size: 10px; top: 9px; color: #7fc9ff; }
+.oled-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.oled-tags span { padding: 4px 10px; border: 1px solid rgba(127,201,255,.4); font-size: 12.5px; }
+.oled-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 36px; }
+.oled-links a { text-decoration: none; padding: 10px 16px; border: 1px solid #cdeeff; color: #cdeeff; font-size: 13px; }
+.oled-links a:first-child, .oled-links a:hover { background: #cdeeff; color: #020305; text-shadow: none; }
+.oled-wave { display: block; width: 100%; height: 40px; margin-top: 46px; }
+.oled-wave path { fill: none; stroke: #7fc9ff; stroke-width: 2; vector-effect: non-scaling-stroke; animation: wave 2.4s linear infinite; stroke-dasharray: 12 6; }
+@keyframes wave { to { stroke-dashoffset: -36; } }
+
 .noscript { position: fixed; inset: auto 0 40% 0; text-align: center; }
 
 /* ---------- small screens ---------- */

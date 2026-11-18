@@ -5,6 +5,11 @@
 import * as THREE from "./three.module.min.js";
 import { OrbitControls } from "./OrbitControls.js";
 import { RoomEnvironment } from "./RoomEnvironment.js";
+import { EffectComposer } from "./post/EffectComposer.js";
+import { RenderPass } from "./post/RenderPass.js";
+import { UnrealBloomPass } from "./post/UnrealBloomPass.js";
+import { OutputPass } from "./post/OutputPass.js";
+import { buildBench } from "./bench.js";
 import { GCODE as CHECKED_GCODE, CHECK } from "./intro-gcode.js";
 import { TOOLS, POCKET_DEPTH, MAIN_POCKET, EXP_BOARD, plan, layout, program } from "./fixture.js";
 
@@ -31,6 +36,8 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
 };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// ?speed=N runs the intro N times faster (for testing on slow machines)
+const SPEED = clamp(Number(new URLSearchParams(location.search).get("speed")) || 1, 1, 40);
 const easeOut = (t) => 1 - Math.pow(1 - t, 3);
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const easeBack = (t) => { const c = 1.25; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
@@ -40,7 +47,7 @@ const easeBack = (t) => { const c = 1.25; return 1 + (c + 1) * Math.pow(t - 1, 3
 const canvas = $("#scene");
 let renderer;
 try {
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "high-performance" });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
 } catch (e) {
   location.replace("work.html" + location.hash);
   throw e;
@@ -52,6 +59,9 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x131115);
+scene.fog = new THREE.Fog(0x131115, 750, 1900);
+const BENCH_Y = -62; // bench top, under the vise
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.32;
@@ -69,8 +79,10 @@ key.position.set(-150, 320, 190);
 key.castShadow = true;
 key.shadow.mapSize.set(lite ? 1024 : 2048, lite ? 1024 : 2048);
 {
-  const half = Math.max(STOCK.x[1] - STOCK.x[0], STOCK_D) / 2 + 40;
-  Object.assign(key.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 50, far: 900 });
+  // desktop: shadows across the near bench too; phones: just the plate
+  const half = lite ? Math.max(STOCK.x[1] - STOCK.x[0], STOCK_D) / 2 + 60 : 470;
+  if (!lite) key.shadow.mapSize.set(4096, 4096);
+  Object.assign(key.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 50, far: 1200 });
   key.position.z += STOCK_ZC;
   key.target.position.set(0, 0, STOCK_ZC);
   scene.add(key.target);
@@ -82,14 +94,17 @@ const rim = new THREE.DirectionalLight(0xa58bff, 0.35);
 rim.position.set(220, 140, -240);
 scene.add(rim);
 
-const catcher = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), new THREE.ShadowMaterial({ opacity: 0.45 }));
-catcher.rotation.x = -Math.PI / 2;
-catcher.position.y = STOCK.z[0] - 0.05;
-catcher.receiveShadow = true;
-scene.add(catcher);
+// bloom makes the LEDs, traces and screens glow; skipped on phones
+let composer = null;
+if (!lite) {
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.45, 0.92));
+  composer.addPass(new OutputPass());
+}
 
 /* camera framing: the view direction stays fixed, the distance fits the width */
-const OVERVIEW_DIR = new THREE.Vector3(0, 0.8, 0.6).normalize();
+const OVERVIEW_DIR = new THREE.Vector3(0, 0.74, 0.67).normalize();
 const INTRO_DIR = new THREE.Vector3(-0.18, 0.6, 0.78).normalize();
 function fitDistance(width, height) {
   const vfov = THREE.MathUtils.degToRad(camera.fov);
@@ -97,8 +112,15 @@ function fitDistance(width, height) {
   return Math.max(width / 2 / Math.tan(hfov / 2), height / 2 / Math.tan(vfov / 2));
 }
 function overviewPose() {
-  const target = new THREE.Vector3(0, -4, STOCK_ZC + (small ? 0 : 6));
-  const d = fitDistance(small ? 226 : 290, STOCK_D * 1.02 + 16);
+  const target = new THREE.Vector3(0, -8, STOCK_ZC + (small ? 40 : 14));
+  const d = fitDistance(small ? 226 : 360, STOCK_D * 1.02 + 30);
+  return { pos: target.clone().addScaledVector(OVERVIEW_DIR, d), target };
+}
+// the pick-and-place works from trays behind the plate, so pull back to see them
+function assemblyPose() {
+  const back = -STOCK.y[1] - 160, front = -STOCK.y[0];
+  const target = new THREE.Vector3(0, -20, (back + front) / 2);
+  const d = fitDistance(small ? 260 : 360, (front - back) * 0.92);
   return { pos: target.clone().addScaledVector(OVERVIEW_DIR, d), target };
 }
 function introPose() {
@@ -118,6 +140,7 @@ let viewOffset = { x: 0, y: 0, tx: 0, ty: 0 };
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
+  if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); }
   camera.aspect = w / h;
   applyViewOffset();
 }
@@ -1245,24 +1268,151 @@ function setPhase(p) {
   body.classList.toggle("phase-board", p !== "intro");
 }
 
-let boardDrop = null;
 const allBoards = [boardRoot, ...expBoards.map((e) => e.group)];
-function finishMachining(fast) {
+// where each board ends up: in its pocket
+const finalPos = new Map([[boardRoot, new THREE.Vector3(0, BOARD_Y, BOARD_Z)], ...expBoards.map((e) => [e.group, new THREE.Vector3(e.cx, BOARD_Y, -e.cy)])]);
+let bench = null; // built at start-up (js/bench.js)
+
+/* ---------- pick-and-place: after machining, the head swaps to a vacuum
+   nozzle, lowers the boards into their pockets and places every project ---------- */
+
+// boards wait in the magazine behind the plate, project parts in the feeder
+function stageForAssembly() {
+  allBoards.forEach((g, i) => {
+    g.visible = true;
+    g.rotation.y = 0;
+    g.position.set(bench.magazine.x, bench.magazine.y + 8 + (allBoards.length - 1 - i) * 11, bench.magazine.z);
+  });
+  for (const p of parts) { p.group.visible = false; p.carried = false; }
+  for (const c of cables) c.visible = false;
+}
+function placeEverything() {
+  for (const g of allBoards) { g.visible = true; g.rotation.y = 0; g.position.copy(finalPos.get(g)); }
+  for (const p of parts) { p.carried = false; p.group.visible = true; p.group.position.copy(p.base); p.group.rotation.y = 0; }
+  for (const c of cables) c.visible = true;
+}
+function setNozzle() {
+  if (cutter) toolRig.remove(cutter);
+  cutter = new THREE.Group();
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 22, 16), steel); tube.position.y = 13.5;
+  const cup = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 3, 2.5, 20), new THREE.MeshStandardMaterial({ color: 0x1a1a1c, roughness: 0.8 })); cup.position.y = 1.25;
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 10, 24), paint); body.position.y = 29;
+  for (const m of [tube, cup, body]) { m.castShadow = true; cutter.add(m); }
+  holder.position.y = 34;
+  toolRig.add(cutter);
+}
+const reflowLight = new THREE.PointLight(0xff7a2a, 0, 170, 0);
+scene.add(reflowLight);
+
+const asm = { steps: [], i: 0, t: 0, active: false, log: [] };
+const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
+function asmLog(line) {
+  asm.log.push(line);
+  gl.innerHTML = asm.log.slice(-WINDOW).map((l, i, arr) => `<li class="${i === arr.length - 1 ? "on" : ""}"><b>${asm.log.length - arr.length + i + 1}</b>${esc(l)}</li>`).join("");
+}
+function planAssembly() {
+  const steps = [];
+  steps.push({ type: "move", to: v3(toolRig.position.x * 0.5, 70, toolRig.position.z * 0.5), dur: 1.0, log: "M5 · SPINDLE STOP · RETRACT Z" });
+  steps.push({ type: "blast", dur: 0.8, log: "AIR BLAST · CLEAR CHIPS" });
+  steps.push({ type: "swap", dur: 0.8, log: "TOOL CHANGE · VACUUM NOZZLE" });
+  allBoards.forEach((g, i) => {
+    const to = finalPos.get(g).clone(); to.y += BT;
+    steps.push({ type: "pick", obj: g, from: null, to, dur: 1.3, safe: 46, log: i ? `PLACE EXP${i} · EXPANSION BOARD` : "PLACE MAIN BOARD" });
+  });
+  steps.push({ type: "cables", dur: 0.35, log: "CONNECT RIBBON CABLES" });
+  const order = [...parts].sort((a, b) => (a.parent === b.parent ? 0 : a.parent === boardRoot ? -1 : 1));
+  order.forEach((p, k) => {
+    const slot = bench.feederSlots[k % bench.feederSlots.length];
+    const to = finalPos.get(p.parent).clone().add(p.base).add(v3(0, p.top, 0));
+    steps.push({ type: "pick", part: p, from: slot.clone().add(v3(0, p.top, 0)), to, dur: 0.66, safe: 34, log: `PICK ${p.ref} · PLACE ${p.at[0].toFixed(1)}, ${p.at[1].toFixed(1)} · ${p.label.toUpperCase().slice(0, 18)}` });
+  });
+  steps.push({ type: "move", to: v3(0, 160, -STOCK.y[1] - 60), dur: 0.9, log: "PARK HEAD" });
+  steps.push({ type: "reflow", dur: 1.2, log: "REFLOW" });
+  return steps;
+}
+function startAssembly() {
+  asm.steps = planAssembly();
+  asm.i = 0; asm.t = 0; asm.active = true; asm.log = [];
+  opName.textContent = "OP4 ASSEMBLE";
+  opTool.textContent = "PICK-AND-PLACE";
+  flyTo(assemblyPose(), 1.6);
+}
+const lerpV = (a, b, u, out) => out.lerpVectors(a, b, u);
+const seg = (u, a, b) => easeInOut(clamp((u - a) / (b - a), 0, 1));
+function stepAssembly(dt) {
+  const st = asm.steps[asm.i];
+  if (!st) return completeAssembly();
+  if (asm.t === 0) {
+    asmLog(st.log);
+    st.start = toolRig.position.clone();
+    if (st.type === "pick" && st.obj) st.from = st.obj.position.clone().add(v3(0, BT, 0));
+  }
+  asm.t += dt;
+  const u = clamp(asm.t / st.dur, 0, 1);
+  const tip = toolRig.position;
+  if (st.type === "move") lerpV(st.start, st.to, easeInOut(u), tip);
+  else if (st.type === "blast") {
+    // blow the chips off the plate, outward from the middle
+    for (let k = 0; k < (lite ? 6 : 16); k++) {
+      const i = chipNext++ % CHIPS;
+      const x = SX[0] + Math.random() * (SX[1] - SX[0]), z = -SY[1] + Math.random() * (SY[1] - SY[0]);
+      const a = Math.atan2(z - STOCK_ZC, x) + (Math.random() - 0.5) * 0.6, sp = 160 + Math.random() * 220;
+      chipPos[i * 3] = x; chipPos[i * 3 + 1] = 0.5; chipPos[i * 3 + 2] = z;
+      chipVel[i * 3] = Math.cos(a) * sp; chipVel[i * 3 + 1] = 30 + Math.random() * 90; chipVel[i * 3 + 2] = Math.sin(a) * sp;
+      chipLife[i] = 0.5 + Math.random() * 0.5;
+    }
+  } else if (st.type === "swap") {
+    const up = v3(st.start.x, 130, st.start.z);
+    if (u < 0.5) lerpV(st.start, up, easeInOut(u * 2), tip);
+    else { if (!st.swapped) { st.swapped = true; setNozzle(); } lerpV(up, v3(st.start.x, 70, st.start.z), easeInOut((u - 0.5) * 2), tip); }
+  } else if (st.type === "pick") {
+    const A = st.start, F = st.from, T = st.to, sY = st.safe;
+    const overF = v3(F.x, sY, F.z), overT = v3(T.x, sY, T.z);
+    if (u < 0.22) lerpV(A, overF, seg(u, 0, 0.22), tip);
+    else if (u < 0.32) lerpV(overF, F, seg(u, 0.22, 0.32), tip);
+    else if (u < 0.42) lerpV(F, overF, seg(u, 0.32, 0.42), tip);
+    else if (u < 0.74) lerpV(overF, overT, seg(u, 0.42, 0.74), tip);
+    else if (u < 0.86) lerpV(overT, T, seg(u, 0.74, 0.86), tip);
+    else lerpV(T, overT, seg(u, 0.86, 1), tip);
+    const held = u >= 0.32 && u < 0.86;
+    // the nozzle turns the part into line on the way over, like a real machine
+    const twist = u < 0.42 ? 0.7 : u < 0.74 ? 0.7 * (1 - seg(u, 0.42, 0.74)) : 0;
+    if (st.obj) {
+      if (held) { st.obj.position.set(tip.x, tip.y - BT, tip.z); st.obj.rotation.y = twist * 0.3; }
+      else if (u >= 0.86) { st.obj.position.copy(finalPos.get(st.obj)); st.obj.rotation.y = 0; }
+    } else {
+      const p = st.part;
+      if (held) {
+        p.carried = true; p.group.visible = true;
+        p.group.position.copy(p.parent.worldToLocal(tip.clone().sub(v3(0, p.top, 0))));
+        p.group.rotation.y = twist;
+      } else if (u >= 0.86 && p.carried) { p.carried = false; p.group.position.copy(p.base); p.group.rotation.y = 0; }
+    }
+  } else if (st.type === "cables") {
+    for (const c of cables) c.visible = true;
+  } else if (st.type === "reflow") {
+    reflowLight.position.set(-150 + 300 * u, 40, BOARD_Z - 30 + 120 * u);
+    reflowLight.intensity = Math.sin(Math.PI * u) * 9;
+  }
+  if (u >= 1) { asm.i++; asm.t = 0; reflowLight.intensity = 0; }
+  progEl.style.width = `${((asm.i + u) / asm.steps.length) * 100}%`;
+}
+function completeAssembly() {
+  asm.active = false;
+  reflowLight.intensity = 0;
+  placeEverything();
+  toolRig.visible = false;
   store.set("aa-machined", "1");
+  setPhase("board");
+  flyTo(overviewPose(), 1.4);
+  state.autoPower = setTimeout(() => { if (!state.powered) powerOn(); }, reduced ? 400 : 6000);
+  setTimeout(() => { if (!state.powered) $("#power-hint").classList.add("on"); }, reduced ? 200 : 1400);
+  if (pendingRoute) { const r = pendingRoute; pendingRoute = null; setTimeout(() => { powerOn(); route(r); }, 400); }
+}
+function finishMachining(fast) {
   sim.spin = false;
-  const from = toolRig.position.clone();
-  anims.push({ dur: fast ? 0.01 : 0.9, f: (t) => { toolRig.position.set(from.x * (1 - t), from.y + (260 - from.y) * easeInOut(t), from.z + (-60 - from.z) * t); }, done: () => { toolRig.visible = false; } });
-  const go = () => {
-    for (const g of allBoards) g.visible = true;
-    boardDrop = { t: fast ? 99 : 0, delay: fast ? 0 : 0.45, dur: 1.15, stagger: 0.18 };
-    setPhase("board");
-    flyTo(overviewPose(), fast ? 0.9 : 1.6);
-    const wait = fast || reduced ? 300 : 2200;
-    state.autoPower = setTimeout(() => { if (!state.powered) powerOn(); }, fast || reduced ? 600 : 7000);
-    setTimeout(() => { if (!state.powered) $("#power-hint").classList.add("on"); }, wait);
-    if (pendingRoute) { const r = pendingRoute; pendingRoute = null; setTimeout(() => { powerOn(); route(r); }, 500); }
-  };
-  boardBuilt.then(go);
+  if (fast) { completeAssembly(); return; }
+  startAssembly();
 }
 
 function powerOn() {
@@ -1311,6 +1461,7 @@ function describe(part) {
   if (part.type === "about") return `<em>DS1</em> · About me<small>Electrical Engineering at Western</small>`;
   if (part.type === "contact") return `<em>J1</em> · Contact<small>email, GitHub and more</small>`;
   const p = part.project;
+  if (part.type === "bench") return `${esc(p.title)}<small>${esc(part.note)} · click to open</small>`;
   return `<em>${part.ref}</em> · ${esc(p.title)}<small>${esc(p.type)} · ${esc(p.year)} · click to open</small>`;
 }
 function setHover(part, fromLegend = false) {
@@ -1323,6 +1474,7 @@ function setHover(part, fromLegend = false) {
     if (part !== state.selected) part.liftT = 1.5;
     tip.innerHTML = describe(part);
     tip.classList.toggle("on", !fromLegend);
+    if (part.type === "bench") { outlineMat.opacity = 0; return; }
     const [bx, by] = part.at;
     if (outline.parent !== part.parent) part.parent.add(outline);
     outline.position.x = bx + part.cx; outline.position.z = -by;
@@ -1414,15 +1566,72 @@ function openPanel(key) {
   viewOffset.ty = small ? Math.min(innerHeight * 0.72, 640) / 2 : 0;
   setHover(null);
 }
-function closePanel(fromRoute) {
+function closePanel(fromRoute, noFly = false) {
   panel.classList.remove("open");
   setTimeout(() => { if (!panel.classList.contains("open")) panel.hidden = true; }, 600);
   if (state.selected) { state.selected.liftT = 0; state.selected.tiltT = 0; }
   state.selected = null;
   viewOffset.tx = viewOffset.ty = 0;
-  if (state.phase === "board" && state.view !== "schematic") flyTo(overviewPose(), 1.1);
+  if (state.phase === "board" && state.view !== "schematic" && !noFly) flyTo(overviewPose(), 1.1);
   if (!fromRoute && location.hash) history.replaceState(null, "", location.pathname + location.search);
 }
+
+/* ---------- About: the camera dives into the OLED and the page becomes its screen ---------- */
+const oledEl = $("#oled"), oledBody = $("#oled-body");
+let aboutOpen = false, aboutTimer = null, typeTimer = null;
+function oledHTML() {
+  const a = PROFILE.about || {};
+  const tags = (type) => { const m = new Map(); PROJECTS.filter((p) => p.type === type).forEach((p) => (p.tags || []).forEach((t) => m.set(t, (m.get(t) || 0) + 1))); return [...m].sort((x, y) => y[1] - x[1]).slice(0, 8).map(([t]) => `<span>${esc(t)}</span>`).join(""); };
+  const links = (PROFILE.links || []).filter((l) => !/^mailto:/.test(l.href)).map((l) => `<a href="${esc(safeUrl(l.href))}" target="_blank" rel="noopener noreferrer">${esc(l.label).toUpperCase()} ↗</a>`).join("");
+  const rows = [
+    `<h2 class="oled-hi" id="oled-hi"><span class="typed"></span><i class="cur"></i></h2>`,
+    `<p class="oled-lead">${a.lead || esc(PROFILE.intro || "")}</p>`,
+    ...(a.paragraphs || []).map((t) => `<p>${esc(t)}</p>`),
+    (a.now || []).length ? `<h3>&gt; RIGHT NOW</h3><ul>${a.now.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "",
+    `<h3>&gt; HARDWARE</h3><div class="oled-tags">${tags("hardware")}</div>`,
+    `<h3>&gt; SOFTWARE</h3><div class="oled-tags">${tags("software")}</div>`,
+    `<div class="oled-links"><a href="#/contact">EMAIL ME →</a>${links}</div>`,
+    `<svg class="oled-wave" viewBox="0 0 400 40" preserveAspectRatio="none" aria-hidden="true"><path d="${[...Array(101)].map((_, i) => `${i ? "L" : "M"}${i * 4} ${20 + Math.sin(i * 0.32) * 12}`).join("")}"/></svg>`,
+  ];
+  return rows.filter(Boolean).map((h, i) => h.replace(/^<(\w+)/, `<$1 style="--i:${i}"`)).join("");
+}
+function enterAbout() {
+  if (aboutOpen) return;
+  aboutOpen = true;
+  if (state.view !== "board") setView("board");
+  if (!panel.hidden) closePanel(true, true);
+  setHover(null);
+  if (!state.powered) powerOn();
+  // fly straight down into the screen until its pixels fill the view
+  const wp = aboutPart.group.localToWorld(new THREE.Vector3(0, 2.25, 1.5));
+  const d = 26, phi = 0.16;
+  viewOffset.tx = viewOffset.ty = 0;
+  flyTo({ pos: wp.clone().add(new THREE.Vector3(0, d * Math.cos(phi), d * Math.sin(phi))), target: wp }, reduced ? 0.01 : 1.15);
+  clearTimeout(aboutTimer);
+  aboutTimer = setTimeout(() => {
+    oledBody.innerHTML = oledHTML();
+    oledEl.hidden = false;
+    requestAnimationFrame(() => oledEl.classList.add("on"));
+    oledEl.scrollTop = 0;
+    $("#oled-close").focus({ preventScroll: true });
+    // type the greeting like the little screen does
+    const text = "HI, I'M " + String((PROFILE.name || "Arya").split(" ")[0]).toUpperCase(), out = oledBody.querySelector(".typed");
+    let n = reduced ? text.length : 0;
+    clearInterval(typeTimer);
+    out.textContent = text.slice(0, n);
+    typeTimer = setInterval(() => { out.textContent = text.slice(0, ++n); if (n >= text.length) clearInterval(typeTimer); }, 55);
+  }, reduced ? 0 : 950);
+}
+function exitAbout(fromRoute, noFly = false) {
+  if (!aboutOpen) return;
+  aboutOpen = false;
+  clearTimeout(aboutTimer); clearInterval(typeTimer);
+  oledEl.classList.remove("on");
+  setTimeout(() => { if (!aboutOpen) oledEl.hidden = true; }, 400);
+  if (!noFly) flyTo(overviewPose(), 1.2);
+  if (!fromRoute && location.hash) history.replaceState(null, "", location.pathname + location.search);
+}
+$("#oled-close").addEventListener("click", () => exitAbout());
 function step(dir) {
   const cur = state.selected ? state.selected.key : (location.hash.match(/^#\/(?:p\/)?(.+)$/) || [])[1];
   const i = order.indexOf(cur);
@@ -1441,6 +1650,7 @@ panelBody.addEventListener("click", async (e) => {
 $("#panel-prev").addEventListener("click", () => step(-1));
 $("#panel-next").addEventListener("click", () => step(1));
 addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && aboutOpen) { exitAbout(); return; }
   if (e.key === "Escape" && !panel.hidden) closePanel();
   if (!panel.hidden && (e.key === "ArrowDown" || e.key === "ArrowRight") && !e.target.closest("input")) step(1);
   if (!panel.hidden && (e.key === "ArrowUp" || e.key === "ArrowLeft") && !e.target.closest("input")) step(-1);
@@ -1449,10 +1659,12 @@ addEventListener("keydown", (e) => {
 let pendingRoute = null;
 function route(h = location.hash) {
   const m = h.match(/^#\/(?:p\/)?([\w-]+)$/);
-  if (!m) { if (!panel.hidden) closePanel(true); return; }
+  if (!m) { if (aboutOpen) exitAbout(true); if (!panel.hidden) closePanel(true); return; }
   const key = m[1];
   if (key !== "about" && key !== "contact" && !PROJECTS.some((p) => p.slug === key)) return;
   if (state.phase === "intro") { pendingRoute = h; skip(); return; }
+  if (key === "about") { enterAbout(); return; }
+  if (aboutOpen) exitAbout(true, true);
   openPanel(key);
 }
 addEventListener("hashchange", () => route());
@@ -1566,9 +1778,8 @@ function buildSchematic() {
 /* ================= intro controls ================= */
 
 function skip() {
-  if (state.phase !== "intro" || sim.done) return;
-  sim.done = true;
-  machineInstantly();
+  if (state.phase !== "intro") return;
+  if (!sim.done) { sim.done = true; machineInstantly(); }
   finishMachining(true);
 }
 $("#skip").addEventListener("click", skip);
@@ -1581,15 +1792,16 @@ $("#replay").addEventListener("click", () => {
   sw.lever.position.x = -2.2;
   clearTimeout(state.autoPower);
   $("#power-hint").classList.remove("on");
-  for (const g of allBoards) { g.visible = false; g.position.y = 140; }
-  for (const c of cables) c.visible = false;
-  boardDrop = null;
+  asm.active = false;
+  reflowLight.intensity = 0;
+  stageForAssembly();
   resetStock();
   Object.assign(sim, { t: 0, i: 0, u: 0, spin: false, tool: 1, done: false });
   setTool(1);
   toolRig.visible = true;
   placeTool(0, 0, 60);
   setPhase("intro");
+  showLine(0);
   flyTo(introPose(), 1.2);
 });
 
@@ -1603,7 +1815,8 @@ function tick(now) {
   const dt = Math.min(0.05, rdt); // the machining: never jumps more than a frame's worth
   last = now;
 
-  if (state.phase === "intro" && !sim.done) stepSim(dt);
+  if (state.phase === "intro" && !sim.done) stepSim(dt * SPEED);
+  else if (asm.active) stepAssembly(rdt * SPEED);
   flush();
   if (sim.spin && cutter) cutter.rotation.y += dt * 40;
   updateChips(dt);
@@ -1614,17 +1827,6 @@ function tick(now) {
     const u = clamp(a.t / a.dur, 0, 1);
     a.f(easeOut(u));
     if (u >= 1) { anims.splice(i, 1); a.done && a.done(); }
-  }
-
-  if (boardDrop) {
-    boardDrop.t += rdt;
-    let landed = true;
-    allBoards.forEach((g, i) => {
-      const u = clamp((boardDrop.t - boardDrop.delay - i * boardDrop.stagger) / boardDrop.dur, 0, 1);
-      g.position.y = 140 + (BOARD_Y - 140) * easeBack(u);
-      if (u < 1) landed = false;
-    });
-    if (landed) { boardDrop = null; for (const c of cables) c.visible = true; }
   }
 
   if (camTween) {
@@ -1666,10 +1868,12 @@ function tick(now) {
     }
   }
   oled.tick(now);
+  bench.update(now, state.powered);
 
   // hover / lift
   if (state.phase === "board" && pointerIn && !camTween) setHover(pick());
   for (const part of [...parts, sw.part]) {
+    if (part.carried) continue;
     part.lift += (part.liftT - part.lift) * Math.min(1, dt * 9);
     part.tilt += (part.tiltT - part.tilt) * Math.min(1, dt * 7);
     part.group.position.y = part.base.y + part.lift;
@@ -1686,7 +1890,7 @@ function tick(now) {
     hint.style.top = `${(-tmp.y * 0.5 + 0.5) * innerHeight}px`;
   }
 
-  renderer.render(scene, camera);
+  if (composer) composer.render(); else renderer.render(scene, camera);
 }
 
 /* ================= start ================= */
@@ -1695,6 +1899,17 @@ resetStock();
 placeTool(0, 0, 60);
 showLine(0);
 buildBoard();
+bench = buildBench({ stock: STOCK, benchY: BENCH_Y, epaperTex: epaperTexture(), lite });
+scene.add(bench.group);
+const BENCH_NOTES = { "mini-spice": "on the scope", "epaper-display": "on the bench", "led-matrix": "on the bench" };
+for (const c of bench.clickables) {
+  const project = PROJECTS.find((p) => p.slug === c.key);
+  if (!project) { c.hit.visible = false; continue; }
+  const part = { key: c.key, type: "bench", project, note: BENCH_NOTES[c.key] || "on the bench", group: c.group, liftT: 0 };
+  c.hit.userData.part = part;
+  hits.push(c.hit);
+}
+stageForAssembly();
 state.boardReady = true;
 const boardBuilt = Promise.resolve();
 renderer.setAnimationLoop(tick);

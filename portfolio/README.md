@@ -2,10 +2,13 @@
 
 Arya Ananda's portfolio. Plain HTML/CSS/JS, no build step.
 
-- `index.html`: the 3D landing page. A block of aluminium is machined by
-  real G-code (`intro.nc`), then a circuit board drops into the pocket.
-  Every part on the board is a project; click one to open it. It also has
-  an X-ray view and a schematic view.
+- `index.html`: the 3D landing page. On a workbench, a block of aluminium
+  held in a vise is machined by real G-code (`intro.nc`). The head then
+  swaps to a vacuum nozzle and assembles the circuit boards like a
+  pick-and-place machine. Every part on the board is a project; click one
+  to open it. Some things on the bench open projects too (the scope, the
+  e-paper display, the LED cube). "About me" dives the camera into the
+  board's OLED. There are also X-ray and schematic views.
 - `work.html`: the same projects as a plain list (also where the 3D page
   sends browsers without WebGL).
 
@@ -50,6 +53,15 @@ the file directly won't work):
 ```sh
 python3 -m http.server 8000   # then open http://localhost:8000
 ```
+
+## Files
+
+- `js/board.js`: the scene, machining, pick-and-place, panels, About dive
+- `js/bench.js`: the workbench and everything on it
+- `js/fixture.js`: plate layout and the G-code, from the project list
+- `js/post/`: bloom (glow) post-processing from Three.js
+
+`?speed=10` on the URL runs the intro 10 times faster, for testing.
 
 ## Notes
 
