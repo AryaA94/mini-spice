@@ -1370,8 +1370,9 @@ function panelHTML(key) {
       `<p class="p-ref mono">J1 · CONTACT</p>`,
       `<h2 class="p-title" id="panel-title">Say hello</h2>`,
       `<p class="p-tag">I'm open to co-op and internship roles, and always happy to talk about a project.</p>`,
-      PROFILE.email ? `<a class="p-email" href="mailto:${esc(PROFILE.email)}">${esc(PROFILE.email)}</a>` : "",
-      linksHTML(links, false),
+      PROFILE.email ? `<p class="p-email">${esc(PROFILE.email)}</p>` : "",
+      PROFILE.email ? `<div class="p-links"><button class="btn solid" data-copy="${esc(PROFILE.email)}">Copy email</button><a class="btn" href="https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(PROFILE.email)}" target="_blank" rel="noopener noreferrer">Open in Gmail ↗</a><a class="btn" href="mailto:${esc(PROFILE.email)}">Mail app ↗</a></div>` : "",
+      `<div style="margin-top:10px">${linksHTML(links, false)}</div>`,
       PROFILE.location ? `<p class="p-tag mono" style="margin-top:22px">Based in ${esc(PROFILE.location)}</p>` : "",
     ];
   }
@@ -1429,6 +1430,14 @@ function step(dir) {
   location.hash = "/" + (n === "about" || n === "contact" ? n : "p/" + n);
 }
 $("#panel-close").addEventListener("click", () => closePanel());
+// "Copy email": works even when no mail app is set up
+panelBody.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-copy]");
+  if (!b) return;
+  try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = "Copied ✓"; }
+  catch { b.textContent = b.dataset.copy; }
+  setTimeout(() => { b.textContent = "Copy email"; }, 2000);
+});
 $("#panel-prev").addEventListener("click", () => step(-1));
 $("#panel-next").addEventListener("click", () => step(1));
 addEventListener("keydown", (e) => {
@@ -1454,6 +1463,7 @@ addEventListener("hashchange", () => route());
   const tag = PROFILE.intro || "";
   $("#tagline").textContent = tag;
   const links = (PROFILE.links || []).map((l) => `<a href="${esc(safeUrl(l.href))}" ${/^mailto:/.test(l.href) ? "" : 'target="_blank" rel="noopener noreferrer"'}>${esc(l.label)}</a>`);
+  if (PROFILE.email) links.unshift(`<a href="#/contact">Email</a>`);
   links.push(`<a class="primary" href="work.html">List view</a>`);
   $("#links").innerHTML = links.join("");
   $("#name").textContent = PROFILE.name || "Arya Ananda";

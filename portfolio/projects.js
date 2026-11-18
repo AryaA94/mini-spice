@@ -288,9 +288,8 @@ window.PROFILE = {
       "Open to co-op and internship roles",
     ],
   },
-  email: "vj7386071@gmail.com",
+  email: "aryaanandawork@gmail.com",
   links: [
-    { label: "Email", href: "mailto:vj7386071@gmail.com" },
     { label: "GitHub", href: "https://github.com/AryaA94" },
     { label: "LinkedIn", href: "https://www.linkedin.com/in/arya-ananda-3a2901280" },
   ],

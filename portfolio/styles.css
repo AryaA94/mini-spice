@@ -266,8 +266,8 @@ svg.cover { overflow: visible; }
 .contact-big:hover::after { transform: scaleX(1); transform-origin: left; }
 .contact-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
 .contact-links { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 0; }
-.contact-links a { display: inline-block; padding: 10px 16px; border: 1px solid var(--line-2); border-radius: 999px; transition: background .3s, color .3s, border-color .3s; }
-.contact-links a:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.contact-links a, .contact-links button { display: inline-block; padding: 10px 16px; border: 1px solid var(--line-2); border-radius: 999px; transition: background .3s, color .3s, border-color .3s; }
+.contact-links a:hover, .contact-links button:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
 /* ---------- detail ---------- */
 .detail { position: fixed; inset: 0; z-index: 60; }

@@ -155,8 +155,8 @@ body.phase-intro .dock { opacity: 0; transform: translateY(20px); pointer-events
 .p-list { list-style: none; padding: 0; margin: 0 0 22px; }
 .p-list li { position: relative; padding: 6px 0 6px 18px; }
 .p-list li::before { content: ""; position: absolute; left: 1px; top: 15px; width: 7px; height: 7px; border-radius: 50%; background: #39d353; }
-.p-email { display: block; font: 400 clamp(26px, 6vw, 34px)/1.1 var(--serif); margin: 6px 0 22px; text-decoration: none; overflow-wrap: anywhere; }
-.p-email:hover { color: var(--gold); }
+.p-email { display: block; user-select: all; font: 400 clamp(26px, 6vw, 34px)/1.1 var(--serif); margin: 6px 0 22px; text-decoration: none; overflow-wrap: anywhere; }
+
 .p-skills { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
 .p-skills h4 { margin: 0 0 6px; font: 400 10.5px var(--mono); text-transform: uppercase; color: var(--ink-3); }
 .p-skills ul { list-style: none; margin: 0; padding: 0; color: var(--ink-2); font-size: 14px; }

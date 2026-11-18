@@ -157,8 +157,19 @@
   const email = PROFILE.email || "";
   const ce = $("#contact-email");
   ce.textContent = email || "Say hello";
-  ce.href = email ? `mailto:${email}` : (PROFILE.links || [])[0]?.href || "#";
-  $("#contact-links").innerHTML = (PROFILE.links || []).map((l) => `<li><a href="${esc(safeUrl(l.href))}" target="_blank" rel="noopener noreferrer" data-magnetic>${esc(l.label)} ↗</a></li>`).join("");
+  // a mailto: link does nothing for people without a mail app, so the big
+  // address opens Gmail's compose window and there's a copy button too
+  ce.href = email ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}` : (PROFILE.links || [])[0]?.href || "#";
+  if (email) { ce.target = "_blank"; ce.rel = "noopener noreferrer"; }
+  $("#contact-links").innerHTML =
+    (email ? `<li><button class="copy-email" data-copy="${esc(email)}" data-magnetic>Copy email</button></li><li><a href="mailto:${esc(email)}" data-magnetic>Mail app ↗</a></li>` : "") +
+    (PROFILE.links || []).map((l) => `<li><a href="${esc(safeUrl(l.href))}" target="_blank" rel="noopener noreferrer" data-magnetic>${esc(l.label)} ↗</a></li>`).join("");
+  document.querySelector(".copy-email")?.addEventListener("click", async (e) => {
+    const b = e.currentTarget;
+    try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = "Copied ✓"; }
+    catch { b.textContent = b.dataset.copy; }
+    setTimeout(() => { b.textContent = "Copy email"; }, 2000);
+  });
   $("#contact-loc").textContent = PROFILE.location ? `Based in ${PROFILE.location}` : "";
 
   /* ---------- project cards ---------- */
