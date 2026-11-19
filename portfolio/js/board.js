@@ -55,12 +55,18 @@ try {
 }
 // resolution adapts to the device: start a bit low on phones, then step up or
 // down from measured frame times (see adaptQuality in the main loop)
-const MAX_DPR = Math.min(devicePixelRatio || 1, lite ? 1.5 : 2);
-let dpr = lite ? Math.min(MAX_DPR, 1.15) : MAX_DPR;
+const MAX_DPR = Math.min(devicePixelRatio || 1, lite ? 1.25 : 1.5);
+const MIN_DPR = lite ? 0.6 : 0.75;
+// quality tier: 0 = everything, 1 = no glow/blur passes, 2 = also no shadows.
+// What worked last visit is remembered so the next one starts smooth.
+const saved = (() => { try { return JSON.parse(store.get("aa-gfx") || "null"); } catch { return null; } })();
+// start one level better than last time, so a device that was only slow once can recover
+let tier = saved && saved.v === 2 ? Math.max(0, saved.tier - 1) : 0;
+let dpr = saved && saved.v === 2 ? clamp(saved.dpr, MIN_DPR, MAX_DPR) : lite ? Math.min(MAX_DPR, 1) : Math.min(MAX_DPR, 1.25);
 renderer.setPixelRatio(dpr);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.95;
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = tier < 2;
 renderer.shadowMap.type = lite ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 // shadows only move when something casting them moves, so they are redrawn on
 // demand (markShadows) instead of every frame
@@ -91,7 +97,7 @@ key.shadow.mapSize.set(lite ? 1024 : 2048, lite ? 1024 : 2048);
 {
   // desktop: shadows across the near bench too; phones: just the plate
   const half = lite ? Math.max(STOCK.x[1] - STOCK.x[0], STOCK_D) / 2 + 60 : 470;
-  if (!lite) key.shadow.mapSize.set(4096, 4096);
+  if (!lite) key.shadow.mapSize.set(2048, 2048);
   Object.assign(key.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 50, far: 1200 });
   key.position.z += STOCK_ZC;
   key.target.position.set(0, 0, STOCK_ZC);
@@ -107,7 +113,7 @@ scene.add(rim);
 // bloom makes the LEDs, traces and screens glow; skipped on phones
 let composer = null;
 const tiltPasses = [];
-if (!lite) {
+if (!lite && tier === 0) {
   // the composer's own target needs MSAA, or edges come out jagged
   const target = new THREE.WebGLRenderTarget(innerWidth * dpr, innerHeight * dpr, { type: THREE.HalfFloatType, samples: 4 });
   composer = new EffectComposer(renderer, target);
@@ -1464,6 +1470,7 @@ function completeAssembly() {
   flyTo(overviewPose(), 1.4);
   state.autoPower = setTimeout(() => { if (!state.powered) powerOn(); }, reduced ? 400 : 6000);
   setTimeout(() => { if (!state.powered) $("#power-hint").classList.add("on"); }, reduced ? 200 : 1400);
+  setTimeout(showHint, reduced ? 300 : 1600);
   if (pendingRoute) { const r = pendingRoute; pendingRoute = null; setTimeout(() => { powerOn(); route(r); }, 400); }
 }
 function finishMachining(fast) {
@@ -1733,7 +1740,7 @@ addEventListener("hashchange", () => route());
   $("#tagline").textContent = tag;
   const links = (PROFILE.links || []).map((l) => `<a href="${esc(safeUrl(l.href))}" ${/^mailto:/.test(l.href) ? "" : 'target="_blank" rel="noopener noreferrer"'}>${esc(l.label)}</a>`);
   if (PROFILE.email) links.unshift(`<a href="#/contact">Email</a>`);
-  links.push(`<a class="primary" href="work.html">List view</a>`);
+  links.push(`<a class="primary" href="work.html">See all projects</a>`);
   $("#links").innerHTML = links.join("");
   $("#name").textContent = PROFILE.name || "Arya Ananda";
 
@@ -1747,6 +1754,63 @@ addEventListener("hashchange", () => route());
   $("#legend").addEventListener("mouseover", (e) => { const b = e.target.closest("button"); if (b && state.view !== "schematic") setHover(keyToPart(b.dataset.key), true); });
   $("#legend").addEventListener("mouseout", () => setHover(null));
 }
+
+/* name tags over every project, so it's obvious the parts are clickable */
+const tagsEl = $("#tags");
+const tagItems = [...projectParts, aboutPart, contactPart].map((part) => {
+  const b = document.createElement("button");
+  const name = part.type === "about" ? "About me" : part.type === "contact" ? "Contact" : part.project.title;
+  const short = small && name.length > 14 ? name.slice(0, 13) + "…" : name;
+  b.className = "tag mono" + (part.project ? "" : " me");
+  b.innerHTML = `<i></i>${esc(short)}`;
+  b.title = name;
+  b.addEventListener("click", () => activate(part));
+  b.addEventListener("mouseenter", () => setHover(part, true));
+  b.addEventListener("mouseleave", () => setHover(null));
+  tagsEl.appendChild(b);
+  return { part, el: b };
+});
+const tagPos = new THREE.Vector3();
+function updateTags() {
+  const show = state.phase === "board" && panel.hidden && !aboutOpen && state.view !== "schematic";
+  tagsEl.classList.toggle("on", show);
+  if (!show) return;
+  for (const t of tagItems) {
+    t.part.group.getWorldPosition(tagPos);
+    tagPos.x += t.part.cx || 0;
+    tagPos.y += (t.part.top || 3) + 3;
+    tagPos.project(camera);
+    t.sx = (tagPos.x * 0.5 + 0.5) * innerWidth;
+    t.sy = (-tagPos.y * 0.5 + 0.5) * innerHeight;
+    if (!t.w) { t.w = t.el.offsetWidth; t.h = t.el.offsetHeight; }
+  }
+  // keep tags from overlapping: lower ones stay put, ones that collide move up,
+  // with a thin line back down to their part
+  const placed = [];
+  for (const t of [...tagItems].sort((a, b) => b.sy - a.sy)) {
+    let y = t.sy;
+    for (let k = 0; k < 8; k++) {
+      const hit = placed.find((r) => t.sx - t.w / 2 - 3 < r.x1 && t.sx + t.w / 2 + 3 > r.x0 && y - t.h - 8 < r.y1 && y - 2 > r.y0);
+      if (!hit) break;
+      y = hit.y0 - 2;
+    }
+    placed.push({ x0: t.sx - t.w / 2, x1: t.sx + t.w / 2, y0: y - t.h - 8, y1: y });
+    const lift = t.sy - y;
+    t.el.classList.toggle("lifted", lift > 1);
+    if (lift > 1) t.el.style.setProperty("--lead", `${lift.toFixed(0)}px`);
+    t.el.style.transform = `translate(${t.sx.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+  }
+}
+// a one-time hint when the board first appears
+let hintShown = false;
+function showHint() {
+  if (hintShown) return;
+  hintShown = true;
+  const h = $("#board-hint");
+  h.classList.add("on");
+  setTimeout(() => h.classList.remove("on"), 9000);
+}
+$("#hint-close").addEventListener("click", () => $("#board-hint").classList.remove("on"));
 
 function setView(v) {
   state.view = v;
@@ -1876,22 +1940,32 @@ controls.addEventListener("change", touch);
 canvas.addEventListener("pointerdown", touch);
 addEventListener("wheel", touch, { passive: true });
 // measure real frame times and trade resolution for smoothness
-const perf = { t0: performance.now(), frames: 0, sum: 0, cool: 0 };
+// ignore the first seconds: shader compiles and texture uploads make a few long frames
+const perf = { t0: performance.now(), frames: 0, sum: 0, cool: performance.now() + 2500, slow: 0 };
+function saveGfx() { store.set("aa-gfx", JSON.stringify({ v: 2, dpr, tier })); }
 function adaptQuality(now, ms) {
   perf.frames++; perf.sum += ms;
-  if (now - perf.t0 < 1000) return;
+  if (now - perf.t0 < 500) return;
   const avg = perf.sum / perf.frames;
   perf.t0 = now; perf.frames = 0; perf.sum = 0;
   if (now < perf.cool) return;
-  let next = dpr;
-  if (avg > 24 && dpr > 0.7) next = Math.max(0.7, dpr - 0.15);
-  else if (avg < 14 && dpr < MAX_DPR) next = Math.min(MAX_DPR, dpr + 0.1);
-  if (next !== dpr) {
-    dpr = next;
-    renderer.setPixelRatio(dpr);
-    resize();
-    perf.cool = now + 1500;
+  perf.slow = avg > 22 ? perf.slow + 1 : 0;
+  if (avg > 22) {
+    // too slow: first lower the resolution, then drop the effects, then the shadows
+    // (effects only after two slow readings in a row)
+    if (dpr > MIN_DPR) { dpr = Math.max(MIN_DPR, dpr - 0.2); renderer.setPixelRatio(dpr); resize(); }
+    else if (perf.slow < 2) return;
+    else if (tier === 0) { tier = 1; composer = null; tiltPasses.length = 0; dpr = Math.min(MAX_DPR, dpr + 0.25); renderer.setPixelRatio(dpr); resize(); }
+    else if (tier === 1) { tier = 2; renderer.shadowMap.enabled = false; scene.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => (m.needsUpdate = true)); }); }
+    else return;
+    perf.cool = now + 900;
     markShadows();
+    saveGfx();
+  } else if (avg < 13 && dpr < MAX_DPR) {
+    dpr = Math.min(MAX_DPR, dpr + 0.1);
+    renderer.setPixelRatio(dpr); resize();
+    perf.cool = now + 2500;
+    saveGfx();
   }
 }
 const animatedParts = () => [...parts, sw.part];
@@ -1995,6 +2069,7 @@ function tick(now) {
   // shadows: every frame while the machine runs (every other frame on phones),
   // otherwise only while a part or the switch is moving
   if (state.phase === "intro" ? !lite || frameN % 2 === 0 : moving || anims.length > 0) markShadows();
+  updateTags();
   if (composer) composer.render(); else renderer.render(scene, camera);
 }
 

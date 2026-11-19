@@ -213,11 +213,14 @@ export function buildBench(o) {
     g.add(L);
     shadow(470, backZ - 40, 140, 140);
     // no shadow from this light: the key light already casts them, and it keeps it cheap
-    lamp = new THREE.SpotLight(0xffc98a, o.lite ? 1.0 : 1.2, 0, 0.7, 0.95, 0);
-    L.updateMatrixWorld(true);
-    bulb.getWorldPosition(lamp.position);
-    lamp.target.position.set(-40, S.z[1], zc - 40);
-    g.add(lamp, lamp.target);
+    // phones skip the light itself (an extra light costs on every pixel); the bulb still glows
+    if (!o.lite) {
+      lamp = new THREE.SpotLight(0xffc98a, 1.2, 0, 0.7, 0.95, 0);
+      L.updateMatrixWorld(true);
+      bulb.getWorldPosition(lamp.position);
+      lamp.target.position.set(-40, S.z[1], zc - 40);
+      g.add(lamp, lamp.target);
+    }
   }
 
   // --- cutting mat on the right

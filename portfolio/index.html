@@ -35,11 +35,14 @@
       <p id="check-text"></p>
       <a href="intro.nc" target="_blank" rel="noopener">View the G-code ↗</a>
     </div>
-    <button class="skip" id="skip">Skip to the board <span aria-hidden="true">→</span></button>
+    <button class="skip" id="skip">Skip to my projects <span aria-hidden="true">→</span></button>
   </section>
 
   <!-- board UI -->
   <div class="tooltip mono" id="tooltip" role="status" aria-live="polite"></div>
+  <!-- name tags floating over each project on the board -->
+  <div class="tags" id="tags" aria-label="Projects on the board"></div>
+  <div class="board-hint" id="board-hint" role="status"><span>Each part on this board is one of my projects. <b>Tap a tag to open it</b>, or</span> <a href="work.html">see them all as a list →</a><button id="hint-close" aria-label="Dismiss">✕</button></div>
   <div class="power-hint mono" id="power-hint"><span class="dot"></span>Flip <b>SW1</b> to power the board</div>
 
   <footer class="dock" id="dock">
