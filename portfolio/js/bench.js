@@ -7,9 +7,18 @@
 // page; board.js passes in what it needs and calls update() every frame.
 
 import * as THREE from "./three.module.min.js";
+import { RoundedBoxGeometry } from "./RoundedBoxGeometry.js";
 
 const box = (w, h, d, mat, x = 0, y = 0, z = 0) => {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y + h / 2, z);
+  m.castShadow = m.receiveShadow = true;
+  return m;
+};
+// a box with softened edges: looks manufactured instead of blocky, for almost no cost
+let RSEG = 3;
+const rbox = (w, h, d, r, mat, x = 0, y = 0, z = 0) => {
+  const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, RSEG, Math.min(r, w / 2, h / 2, d / 2)), mat);
   m.position.set(x, y + h / 2, z);
   m.castShadow = m.receiveShadow = true;
   return m;
@@ -31,30 +40,96 @@ function canvasTex(w, h, draw, srgb = true) {
 }
 function rng(seed) { return () => ((seed = (seed * 16807) % 2147483647) / 2147483647); }
 
-function woodTexture() {
-  const r = rng(5);
-  const t = canvasTex(1024, 512, (x, W, H) => {
-    x.fillStyle = "#5e3f27"; x.fillRect(0, 0, W, H);
-    // planks
-    for (let p = 0; p < 4; p++) {
-      const y0 = (p * H) / 4, tone = 0.85 + r() * 0.3;
-      x.fillStyle = `rgba(${Math.round(120 * tone)},${Math.round(82 * tone)},${Math.round(52 * tone)},.55)`;
-      x.fillRect(0, y0, W, H / 4);
-      for (let k = 0; k < 46; k++) {
-        const y = y0 + r() * (H / 4), a = 0.04 + r() * 0.1, amp = 1 + r() * 4, f = 0.004 + r() * 0.01, ph = r() * 9;
-        x.strokeStyle = `rgba(${r() < 0.5 ? "35,20,10" : "160,115,75"},${a})`;
-        x.lineWidth = 0.6 + r() * 1.8;
+function woodTexture(big) {
+  const r = rng(5), W = big ? 2048 : 1024, H = W / 2;
+  const t = canvasTex(W, H, (x) => {
+    x.fillStyle = "#5a3b24"; x.fillRect(0, 0, W, H);
+    const planks = 5;
+    for (let p = 0; p < planks; p++) {
+      const y0 = (p * H) / planks, ph = H / planks, tone = 0.82 + r() * 0.32;
+      const g = x.createLinearGradient(0, y0, 0, y0 + ph);
+      g.addColorStop(0, `rgb(${Math.round(128 * tone)},${Math.round(86 * tone)},${Math.round(54 * tone)})`);
+      g.addColorStop(1, `rgb(${Math.round(110 * tone)},${Math.round(72 * tone)},${Math.round(44 * tone)})`);
+      x.fillStyle = g; x.fillRect(0, y0, W, ph);
+      // long grain lines with a slow wobble
+      for (let k = 0; k < 70; k++) {
+        const y = y0 + r() * ph, a = 0.03 + r() * 0.09, amp = 1 + r() * 5, f = 0.002 + r() * 0.006, phs = r() * 9;
+        x.strokeStyle = `rgba(${r() < 0.55 ? "40,22,10" : "175,128,84"},${a})`;
+        x.lineWidth = 0.5 + r() * 2.2;
         x.beginPath();
-        for (let X = 0; X <= W; X += 16) { const Y = y + Math.sin(X * f + ph) * amp; X ? x.lineTo(X, Y) : x.moveTo(X, Y); }
+        for (let X = 0; X <= W; X += 12) { const Y = y + Math.sin(X * f + phs) * amp + Math.sin(X * f * 3.1) * amp * 0.3; X ? x.lineTo(X, Y) : x.moveTo(X, Y); }
         x.stroke();
       }
-      x.fillStyle = "rgba(20,10,4,.55)"; x.fillRect(0, y0, W, 2);
+      // a knot or two, with grain bending round it
+      for (let k = 0; k < 1 + Math.floor(r() * 2); k++) {
+        const cx = r() * W, cy = y0 + ph * (0.3 + r() * 0.4), rx = 10 + r() * 16;
+        for (let ring = 6; ring > 0; ring--) {
+          x.strokeStyle = `rgba(45,24,10,${0.1 + ring * 0.03})`; x.lineWidth = 1.5;
+          x.beginPath(); x.ellipse(cx, cy, rx * ring * 0.5, rx * ring * 0.18, 0, 0, 7); x.stroke();
+        }
+        x.fillStyle = "rgba(38,20,8,.6)"; x.beginPath(); x.ellipse(cx, cy, rx * 0.45, rx * 0.2, 0, 0, 7); x.fill();
+      }
+      x.fillStyle = "rgba(18,9,3,.6)"; x.fillRect(0, y0, W, 3);
+      x.fillStyle = "rgba(255,220,180,.06)"; x.fillRect(0, y0 + 3, W, 2);
     }
   });
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(2, 2);
+  t.repeat.set(1.6, 1.6);
   return t;
 }
+
+// pegboard on the wall behind the bench, with tools hanging on it
+function pegboardTexture(big) {
+  const W = big ? 2048 : 1024, H = Math.round(W * 0.42), s = W / 2048;
+  return canvasTex(W, H, (x) => {
+    const g = x.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#3b3027"); g.addColorStop(1, "#594634");
+    x.fillStyle = g; x.fillRect(0, 0, W, H);
+    for (let Y = 18 * s; Y < H; Y += 36 * s) for (let X = 18 * s; X < W; X += 36 * s) {
+      x.fillStyle = "rgba(10,6,3,.75)"; x.beginPath(); x.arc(X, Y, 4.5 * s, 0, 7); x.fill();
+    }
+    // tool silhouettes, with a soft drop shadow so they sit off the board
+    const tool = (fn) => {
+      x.save(); x.shadowColor = "rgba(0,0,0,.55)"; x.shadowBlur = 18 * s; x.shadowOffsetX = 6 * s; x.shadowOffsetY = 10 * s;
+      fn(); x.restore();
+    };
+    const pliers = (X, Y, col) => tool(() => {
+      x.fillStyle = col;
+      x.save(); x.translate(X, Y); x.rotate(-0.12);
+      x.fillRect(-14 * s, 0, 12 * s, 200 * s); x.fillRect(4 * s, 0, 12 * s, 200 * s);
+      x.fillStyle = "#8e9399"; x.fillRect(-10 * s, -70 * s, 22 * s, 75 * s);
+      x.restore();
+    });
+    const screwdriver = (X, Y, col, len) => tool(() => {
+      x.fillStyle = "#a9adb3"; x.fillRect(X - 4 * s, Y + 95 * s, 8 * s, len * s);
+      x.fillStyle = col; x.beginPath(); x.roundRect(X - 15 * s, Y, 30 * s, 100 * s, 12 * s); x.fill();
+    });
+    const spool = (X, Y, col) => tool(() => {
+      x.fillStyle = "#22252a"; x.beginPath(); x.arc(X, Y, 58 * s, 0, 7); x.fill();
+      x.fillStyle = col; x.beginPath(); x.arc(X, Y, 46 * s, 0, 7); x.fill();
+      x.fillStyle = "#22252a"; x.beginPath(); x.arc(X, Y, 14 * s, 0, 7); x.fill();
+    });
+    const ruler = (X, Y) => tool(() => {
+      x.fillStyle = "#c9ccd1"; x.fillRect(X, Y, 46 * s, 520 * s);
+      x.fillStyle = "#3a3d42";
+      for (let k = 0; k < 52; k++) x.fillRect(X, Y + k * 10 * s, (k % 5 ? 10 : 20) * s, 2 * s);
+    });
+    const cutters = (X, Y) => tool(() => {
+      x.fillStyle = "#c23b32"; x.fillRect(X - 13 * s, Y, 10 * s, 150 * s); x.fillRect(X + 3 * s, Y, 10 * s, 150 * s);
+      x.fillStyle = "#8e9399"; x.beginPath(); x.moveTo(X - 12 * s, Y); x.lineTo(X, Y - 46 * s); x.lineTo(X + 12 * s, Y); x.fill();
+    });
+    ruler(160 * s, 90 * s);
+    for (const [k, c] of [[0, "#2f5fa8"], [1, "#c23b32"], [2, "#e0ad1c"], [3, "#2f8a4a"]]) screwdriver((300 + k * 60) * s, 110 * s, c, 120 + k * 20);
+    pliers(620 * s, 160 * s, "#c23b32");
+    cutters(740 * s, 170 * s);
+    pliers(860 * s, 150 * s, "#2f5fa8");
+    spool(1300 * s, 200 * s, "#c23b32"); spool(1440 * s, 200 * s, "#1b1b1d"); spool(1580 * s, 200 * s, "#e0ad1c");
+    spool(1370 * s, 360 * s, "#2f8a4a"); spool(1510 * s, 360 * s, "#3d6fd8");
+    // a small shelf of parts bins
+    tool(() => { for (let k = 0; k < 5; k++) { x.fillStyle = ["#d63a3a", "#3d6fd8", "#e0ad1c", "#2f8a4a", "#4f2683"][k]; x.fillRect((1700 + k * 62) * s, 520 * s, 54 * s, 70 * s); } });
+  });
+}
+
 function blobTexture() {
   return canvasTex(128, 128, (x) => {
     const g = x.createRadialGradient(64, 64, 4, 64, 64, 64);
@@ -101,10 +176,49 @@ export function buildBench(o) {
   };
 
   // --- bench top
-  const top = new THREE.Mesh(new THREE.BoxGeometry(1600, 40, 1000), new THREE.MeshStandardMaterial({ map: woodTexture(), roughness: 0.78 }));
+  RSEG = o.lite ? 2 : 3;
+  const woodMap = woodTexture(!o.lite);
+  woodMap.anisotropy = o.lite ? 4 : 8;
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1600, 40, 1000), new THREE.MeshStandardMaterial({ map: woodMap, roughness: 0.72 }));
   top.position.set(0, Y - 20, zc);
   top.receiveShadow = true;
   g.add(top);
+
+  // --- the wall behind the bench: pegboard and tools
+  {
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(1700, 714), new THREE.MeshStandardMaterial({ map: pegboardTexture(!o.lite), roughness: 0.9 }));
+    wall.position.set(0, Y + 357, backZ - 330);
+    wall.receiveShadow = true;
+    g.add(wall);
+  }
+
+  // --- a desk lamp: a warm pool of light on the plate
+  let lamp = null;
+  {
+    const lm = new THREE.MeshStandardMaterial({ color: 0x2a2c31, metalness: 0.6, roughness: 0.35 });
+    const L = new THREE.Group();
+    L.add(cyl(40, 10, lm));
+    const arm1 = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 260, 12), lm);
+    arm1.position.set(0, 135, 0); arm1.rotation.z = -0.35;
+    const arm2 = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 220, 12), lm);
+    arm2.position.set(-95, 290, 0); arm2.rotation.z = 1.15;
+    const shade = new THREE.Mesh(new THREE.ConeGeometry(42, 70, 28, 1, true), new THREE.MeshStandardMaterial({ color: 0x2a2c31, metalness: 0.5, roughness: 0.4, side: THREE.DoubleSide }));
+    shade.position.set(-185, 300, 0); shade.rotation.z = 0.55;
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(14, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffe2b0, toneMapped: false }));
+    bulb.position.set(-178, 288, 0);
+    for (const m of [arm1, arm2, shade]) { m.castShadow = true; L.add(m); }
+    L.add(bulb);
+    L.position.set(470, Y, backZ - 40);
+    L.rotation.y = -0.7;
+    g.add(L);
+    shadow(470, backZ - 40, 140, 140);
+    // no shadow from this light: the key light already casts them, and it keeps it cheap
+    lamp = new THREE.SpotLight(0xffc98a, o.lite ? 1.0 : 1.2, 0, 0.7, 0.95, 0);
+    L.updateMatrixWorld(true);
+    bulb.getWorldPosition(lamp.position);
+    lamp.target.position.set(-40, S.z[1], zc - 40);
+    g.add(lamp, lamp.target);
+  }
 
   // --- cutting mat on the right
   const mat = new THREE.Mesh(new THREE.PlaneGeometry(330, 300), new THREE.MeshStandardMaterial({ map: matTexture(), roughness: 0.9 }));
@@ -116,9 +230,9 @@ export function buildBench(o) {
   // --- the vise holding the plate
   {
     const len = frontZ - backZ;
-    g.add(box(150, S.z[0] - Y, len, M.vise, 0, Y, zc));
-    g.add(box(170, 12, 24, M.vise, 0, S.z[0], backZ - 12)); // fixed jaw
-    g.add(box(170, 12, 24, M.vise, 0, S.z[0], frontZ + 12)); // moving jaw
+    g.add(rbox(150, S.z[0] - Y, len, 4, M.vise, 0, Y, zc));
+    g.add(rbox(170, 12, 24, 2.5, M.vise, 0, S.z[0], backZ - 12)); // fixed jaw
+    g.add(rbox(170, 12, 24, 2.5, M.vise, 0, S.z[0], frontZ + 12)); // moving jaw
     g.add(box(160, 10, 3, M.steel, 0, S.z[0] + 2, backZ - 1.5));
     g.add(box(160, 10, 3, M.steel, 0, S.z[0] + 2, frontZ + 1.5));
     const screw = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 70, 24), M.steel);
@@ -144,7 +258,7 @@ export function buildBench(o) {
     g.add(m);
     shadow(magazine.x, magazine.z, 230, 170, 0.8);
     const f = new THREE.Group();
-    f.add(box(120, 10, 120, M.tray));
+    f.add(rbox(124, 10, 124, 4, M.tray));
     for (let k = 1; k < 3; k++) { f.add(box(1.5, 4, 116, M.dark, -60 + k * 40, 10, 0)); f.add(box(116, 4, 1.5, M.dark, 0, 10, -60 + k * 40)); }
     const label = new THREE.Mesh(new THREE.PlaneGeometry(60, 9), new THREE.MeshBasicMaterial({ map: canvasTex(256, 40, (x) => { x.fillStyle = "#e3b25a"; x.font = '700 26px "JetBrains Mono", monospace'; x.fillText("FEEDER", 70, 29); }), transparent: true }));
     label.position.set(0, 7, 60.2);
@@ -168,8 +282,9 @@ export function buildBench(o) {
   // --- oscilloscope (opens mini-spice: it plots the same kind of waveforms)
   const scope = (() => {
     const grp = new THREE.Group();
-    grp.add(box(300, 150, 130, M.dark));
-    grp.add(box(300, 12, 130, M.black, 0, 0, 0));
+    grp.add(rbox(300, 150, 130, 10, M.dark));
+    grp.add(rbox(306, 14, 136, 6, M.black, 0, -2, 0));
+    grp.add(rbox(172, 112, 6, 4, M.black, -55, 24, 64)); // screen bezel
     const screenTex = canvasTex(512, 320, () => {});
     const screen = new THREE.Mesh(new THREE.PlaneGeometry(160, 100), new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false }));
     screen.position.set(-55, 80, 65.3);
@@ -220,7 +335,7 @@ export function buildBench(o) {
   // --- soldering station and iron
   {
     const st = new THREE.Group();
-    st.add(box(110, 90, 140, M.dark));
+    st.add(rbox(110, 90, 140, 10, M.dark));
     const disp = new THREE.Mesh(new THREE.PlaneGeometry(56, 26), new THREE.MeshBasicMaterial({ map: canvasTex(224, 104, (x) => { x.fillStyle = "#1b0d06"; x.fillRect(0, 0, 224, 104); x.fillStyle = "#ff7a2f"; x.font = '700 44px "JetBrains Mono", monospace'; x.fillText("IRON", 50, 68); }), toneMapped: false }));
     disp.position.set(0, 60, 70.2);
     st.add(disp);
@@ -259,7 +374,7 @@ export function buildBench(o) {
     const dev = new THREE.Group();
     const caseMat = new THREE.MeshStandardMaterial({ color: 0xd9d6cf, roughness: 0.65 });
     const body = new THREE.Group();
-    body.add(box(135, 84, 31, caseMat, 0, 0, 0));
+    body.add(rbox(135, 84, 31, 6, caseMat, 0, 0, 0));
     const scr = new THREE.Mesh(new THREE.PlaneGeometry(92, 69), new THREE.MeshStandardMaterial({ map: o.epaperTex, roughness: 0.9 }));
     scr.position.set(-8, 42, 15.7);
     body.add(scr);
@@ -272,7 +387,7 @@ export function buildBench(o) {
     body.rotation.x = -0.26; // 15° back
     body.position.set(0, 10, 0);
     dev.add(body);
-    dev.add(box(120, 10, 46, caseMat, 0, 0, -8)); // dock
+    dev.add(rbox(120, 10, 46, 4, caseMat, 0, 0, -8)); // dock
     dev.position.set(262, Y, zc + 40);
     dev.rotation.y = -0.4;
     g.add(dev);
@@ -291,6 +406,7 @@ export function buildBench(o) {
       const m = new THREE.Mesh(new THREE.SphereGeometry(3, 14, 10), mat);
       m.position.set((c - 1) * 18, 14 + l * 16, (r - 1) * 18);
       cube.add(m);
+      if (o.glow) o.glow(m, mat, 22);
       cubeLeds.push({ mat, l, r, c });
     }
     for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) cube.add(cyl(0.5, 46, M.steel, (c - 1) * 18, 3, (r - 1) * 18, 6));
@@ -304,8 +420,8 @@ export function buildBench(o) {
   // --- multimeter with its leads
   {
     const mm = new THREE.Group();
-    mm.add(box(88, 34, 170, new THREE.MeshStandardMaterial({ color: 0xe0ad1c, roughness: 0.6 })));
-    mm.add(box(74, 4, 150, M.black, 0, 34, 0));
+    mm.add(rbox(88, 34, 170, 12, new THREE.MeshStandardMaterial({ color: 0xe0ad1c, roughness: 0.55 })));
+    mm.add(rbox(74, 6, 150, 6, M.black, 0, 30, 0));
     const lcd = new THREE.Mesh(new THREE.PlaneGeometry(58, 28), new THREE.MeshBasicMaterial({ map: canvasTex(232, 112, (x) => { x.fillStyle = "#9fae94"; x.fillRect(0, 0, 232, 112); x.fillStyle = "#1d241a"; x.font = '700 64px "JetBrains Mono", monospace'; x.fillText("3.30", 40, 82); x.font = '600 22px "JetBrains Mono", monospace'; x.fillText("V", 196, 82); }) }));
     lcd.rotation.x = -Math.PI / 2; lcd.position.set(0, 38.2, -45);
     mm.add(lcd);

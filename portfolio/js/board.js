@@ -9,6 +9,7 @@ import { EffectComposer } from "./post/EffectComposer.js";
 import { RenderPass } from "./post/RenderPass.js";
 import { UnrealBloomPass } from "./post/UnrealBloomPass.js";
 import { OutputPass } from "./post/OutputPass.js";
+import { ShaderPass } from "./post/ShaderPass.js";
 import { buildBench } from "./bench.js";
 import { GCODE as CHECKED_GCODE, CHECK } from "./intro-gcode.js";
 import { TOOLS, POCKET_DEPTH, MAIN_POCKET, EXP_BOARD, plan, layout, program } from "./fixture.js";
@@ -105,10 +106,32 @@ scene.add(rim);
 
 // bloom makes the LEDs, traces and screens glow; skipped on phones
 let composer = null;
+const tiltPasses = [];
 if (!lite) {
-  composer = new EffectComposer(renderer);
+  // the composer's own target needs MSAA, or edges come out jagged
+  const target = new THREE.WebGLRenderTarget(innerWidth * dpr, innerHeight * dpr, { type: THREE.HalfFloatType, samples: 4 });
+  composer = new EffectComposer(renderer, target);
   composer.addPass(new RenderPass(scene, camera));
   composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.45, 0.92));
+  // tilt-shift: a soft blur toward the top and bottom of the frame, so the
+  // bench reads like a miniature and the eye goes to the board
+  for (const dir of [[1, 0], [0, 1]]) {
+    const pass = new ShaderPass({
+      uniforms: { tDiffuse: { value: null }, delta: { value: new THREE.Vector2() }, dir: { value: new THREE.Vector2(...dir) }, focus: { value: 0.53 }, band: { value: 0.27 } },
+      vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+      fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 delta; uniform vec2 dir; uniform float focus; uniform float band; varying vec2 vUv;
+        void main(){
+          float k = smoothstep(band, band + 0.32, abs(vUv.y - focus));
+          vec2 st = dir * delta * 2.4 * k;
+          vec4 c = texture2D(tDiffuse, vUv) * 0.2270270;
+          c += (texture2D(tDiffuse, vUv + st * 1.3846) + texture2D(tDiffuse, vUv - st * 1.3846)) * 0.3162162;
+          c += (texture2D(tDiffuse, vUv + st * 3.2308) + texture2D(tDiffuse, vUv - st * 3.2308)) * 0.0702703;
+          gl_FragColor = c;
+        }`,
+    });
+    tiltPasses.push(pass);
+    composer.addPass(pass);
+  }
   composer.addPass(new OutputPass());
 }
 
@@ -150,6 +173,7 @@ function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
   if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); }
+  for (const p of tiltPasses) p.uniforms.delta.value.set(1 / (w * renderer.getPixelRatio()), 1 / (h * renderer.getPixelRatio()));
   camera.aspect = w / h;
   applyViewOffset();
 }
@@ -588,9 +612,27 @@ const cyl = (r, h, mat, x = 0, y = 0, z = 0, seg = 28) => {
   m.castShadow = true; m.receiveShadow = true;
   return m;
 };
+const glows = [];
+const glowTex = (() => {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const x = c.getContext("2d"), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, "rgba(255,255,255,1)"); g.addColorStop(0.25, "rgba(255,255,255,.45)"); g.addColorStop(1, "rgba(255,255,255,0)");
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+// a soft halo that follows a material's emissive brightness (phones only; desktop has bloom)
+function addGlow(mesh, mat, size = 7) {
+  if (!lite) return;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: mat.emissive, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+  sp.scale.set(size, size, 1);
+  mesh.add(sp);
+  glows.push({ sp, mat });
+}
 function led(color, x, z) {
   const mat = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: color, emissiveIntensity: 0, roughness: 0.3 });
   const m = box(1.6, 0.7, 0.9, mat, x, 0, z);
+  addGlow(m, mat, 6);
   return { mesh: m, mat };
 }
 // pins along the edges of a square package, as one instanced mesh
@@ -672,6 +714,7 @@ const MODELS = {
       m.position.set(-3 + (c - 1) * 5, 3.2 + l * 4.5, (r - 1) * 5);
       m.castShadow = true;
       g.add(m);
+      addGlow(m, mat, 5);
       leds.push({ mat, l, r, c });
     }
     for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) g.add(cyl(0.18, 12.5, M.tin, -3 + (c - 1) * 5, 0.8, (r - 1) * 5, 6));
@@ -1925,6 +1968,7 @@ function tick(now) {
   }
   oled.tick(now);
   bench.update(now, state.powered);
+  for (const g of glows) g.sp.material.opacity = Math.min(1, g.mat.emissiveIntensity / 3) * 0.85;
 
   // hover / lift
   if (state.phase === "board" && pointerIn && !camTween) setHover(pick());
@@ -1960,7 +2004,7 @@ resetStock();
 placeTool(0, 0, 60);
 showLine(0);
 buildBoard();
-bench = buildBench({ stock: STOCK, benchY: BENCH_Y, epaperTex: epaperTexture(), lite });
+bench = buildBench({ stock: STOCK, benchY: BENCH_Y, epaperTex: epaperTexture(), lite, glow: addGlow });
 scene.add(bench.group);
 const BENCH_NOTES = { "mini-spice": "on the scope", "epaper-display": "on the bench", "led-matrix": "on the bench" };
 for (const c of bench.clickables) {
