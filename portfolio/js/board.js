@@ -52,11 +52,20 @@ try {
   location.replace("work.html" + location.hash);
   throw e;
 }
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, lite ? 1.5 : 2));
+// resolution adapts to the device: start a bit low on phones, then step up or
+// down from measured frame times (see adaptQuality in the main loop)
+const MAX_DPR = Math.min(devicePixelRatio || 1, lite ? 1.5 : 2);
+let dpr = lite ? Math.min(MAX_DPR, 1.15) : MAX_DPR;
+renderer.setPixelRatio(dpr);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.95;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = lite ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+// shadows only move when something casting them moves, so they are redrawn on
+// demand (markShadows) instead of every frame
+renderer.shadowMap.autoUpdate = false;
+renderer.shadowMap.needsUpdate = true;
+const markShadows = () => { renderer.shadowMap.needsUpdate = true; };
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x131115);
@@ -563,6 +572,7 @@ function decal(tex, w, h, y) {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2 }));
   m.rotation.x = -Math.PI / 2;
   m.position.y = y;
+  m.material.userData.alpha = true; // text decals always need blending
   xrayMats.push(m.material);
   return m;
 }
@@ -1041,7 +1051,7 @@ for (const part of projectParts) {
 /* the board itself, with its artwork painted on a canvas */
 let innerLayer;
 const boardMats = [];
-const boardEdgeMat = new THREE.MeshStandardMaterial({ color: 0xb7a77a, roughness: 0.8, transparent: true });
+const boardEdgeMat = new THREE.MeshStandardMaterial({ color: 0xb7a77a, roughness: 0.8 });
 function boardMesh(tex, w, h) {
   const shape = new THREE.Shape();
   const r = 3, hw = w / 2, hh = h / 2;
@@ -1050,7 +1060,9 @@ function boardMesh(tex, w, h) {
   shape.quadraticCurveTo(-hw, hh, -hw, hh - r); shape.lineTo(-hw, -hh + r); shape.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
   const geo = new THREE.ExtrudeGeometry(shape, { depth: BT, bevelEnabled: false, curveSegments: 6 });
   geo.rotateX(-Math.PI / 2);
-  const mat = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.42, metalness: 0.05, clearcoat: 0.7, clearcoatRoughness: 0.25, transparent: true });
+  const mat = lite
+    ? new THREE.MeshStandardMaterial({ map: tex, roughness: 0.38, metalness: 0.05 })
+    : new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.42, metalness: 0.05, clearcoat: 0.7, clearcoatRoughness: 0.25 });
   boardMats.push(mat);
   const m = new THREE.Mesh(geo, [mat, boardEdgeMat]);
   m.castShadow = m.receiveShadow = true;
@@ -1285,11 +1297,13 @@ function stageForAssembly() {
   });
   for (const p of parts) { p.group.visible = false; p.carried = false; }
   for (const c of cables) c.visible = false;
+  markShadows();
 }
 function placeEverything() {
   for (const g of allBoards) { g.visible = true; g.rotation.y = 0; g.position.copy(finalPos.get(g)); }
   for (const p of parts) { p.carried = false; p.group.visible = true; p.group.position.copy(p.base); p.group.rotation.y = 0; }
   for (const c of cables) c.visible = true;
+  markShadows();
 }
 function setNozzle() {
   if (cutter) toolRig.remove(cutter);
@@ -1693,11 +1707,14 @@ addEventListener("hashchange", () => route());
 
 function setView(v) {
   state.view = v;
+  markShadows();
   document.querySelectorAll(".views button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === v)));
   const xray = v === "xray";
-  for (const m of xrayMats) { m.transparent = true; m.opacity = xray ? 0.22 : 1; m.depthWrite = !xray; m.needsUpdate = true; }
+  // transparency only while X-ray is on: blended materials cost more to draw
+  for (const m of xrayMats) { m.transparent = xray || !!m.userData.alpha; m.opacity = xray ? 0.22 : 1; m.depthWrite = !xray; m.needsUpdate = true; }
   if (innerLayer) {
-    for (const m of boardMats) { m.opacity = xray ? 0.28 : 1; m.depthWrite = !xray; }
+    for (const m of boardMats) { m.transparent = xray; m.opacity = xray ? 0.28 : 1; m.depthWrite = !xray; m.needsUpdate = true; }
+    boardEdgeMat.transparent = xray; boardEdgeMat.needsUpdate = true;
     boardEdgeMat.opacity = xray ? 0.3 : 1;
     innerLayer.visible = xray;
     innerLayer.material.opacity = xray ? 0.7 : 0;
@@ -1810,7 +1827,46 @@ $("#replay").addEventListener("click", () => {
 const anims = [];
 let last = performance.now();
 const tmp = new THREE.Vector3();
+let lastActive = 0, lastRender = 0, frameN = 0, prevGap = 0;
+const touch = () => { lastActive = performance.now(); };
+controls.addEventListener("change", touch);
+canvas.addEventListener("pointerdown", touch);
+addEventListener("wheel", touch, { passive: true });
+// measure real frame times and trade resolution for smoothness
+const perf = { t0: performance.now(), frames: 0, sum: 0, cool: 0 };
+function adaptQuality(now, ms) {
+  perf.frames++; perf.sum += ms;
+  if (now - perf.t0 < 1000) return;
+  const avg = perf.sum / perf.frames;
+  perf.t0 = now; perf.frames = 0; perf.sum = 0;
+  if (now < perf.cool) return;
+  let next = dpr;
+  if (avg > 24 && dpr > 0.7) next = Math.max(0.7, dpr - 0.15);
+  else if (avg < 14 && dpr < MAX_DPR) next = Math.min(MAX_DPR, dpr + 0.1);
+  if (next !== dpr) {
+    dpr = next;
+    renderer.setPixelRatio(dpr);
+    resize();
+    perf.cool = now + 1500;
+    markShadows();
+  }
+}
+const animatedParts = () => [...parts, sw.part];
+let allParts = null;
 function tick(now) {
+  // About covers the whole screen: nothing to draw behind it
+  if (aboutOpen && oledEl.classList.contains("on") && !camTween) { last = now; return; }
+  const busy = state.phase !== "board" || camTween || asm.active || anims.length > 0 || now - lastActive < 700 || !!state.hovered;
+  // on phones, idle frames run at 30 fps (the trace pulses still move), the schematic at 10
+  const minGap = state.view === "schematic" ? 95 : lite && !busy ? 31 : 0;
+  if (now - lastRender < minGap) return;
+  const frameMs = now - lastRender;
+  lastRender = now;
+  frameN++;
+  // judge speed only on full-rate frames (throttled idle frames are slow on purpose)
+  if (minGap === 0 && prevGap === 0) adaptQuality(now, Math.min(frameMs, 100));
+  prevGap = minGap;
+  if (!allParts) allParts = animatedParts();
   const rdt = Math.min(0.25, (now - last) / 1000); // UI tweens: real time, so they finish on slow devices
   const dt = Math.min(0.05, rdt); // the machining: never jumps more than a frame's worth
   last = now;
@@ -1872,8 +1928,10 @@ function tick(now) {
 
   // hover / lift
   if (state.phase === "board" && pointerIn && !camTween) setHover(pick());
-  for (const part of [...parts, sw.part]) {
+  let moving = false;
+  for (const part of allParts) {
     if (part.carried) continue;
+    if (Math.abs(part.liftT - part.lift) > 0.02 || Math.abs(part.tiltT - part.tilt) > 0.002) moving = true;
     part.lift += (part.liftT - part.lift) * Math.min(1, dt * 9);
     part.tilt += (part.tiltT - part.tilt) * Math.min(1, dt * 7);
     part.group.position.y = part.base.y + part.lift;
@@ -1890,6 +1948,9 @@ function tick(now) {
     hint.style.top = `${(-tmp.y * 0.5 + 0.5) * innerHeight}px`;
   }
 
+  // shadows: every frame while the machine runs (every other frame on phones),
+  // otherwise only while a part or the switch is moving
+  if (state.phase === "intro" ? !lite || frameN % 2 === 0 : moving || anims.length > 0) markShadows();
   if (composer) composer.render(); else renderer.render(scene, camera);
 }
 
